@@ -1,0 +1,32 @@
+-- AquaTrack Water Production and Sales Management System
+-- MySQL 8.0+ / MariaDB 10.6+ schema. Safe to run on a new database.
+CREATE DATABASE IF NOT EXISTS water_management CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE water_management;
+
+CREATE TABLE users (
+  user_id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(255) NOT NULL, email VARCHAR(255) NOT NULL UNIQUE,
+  role VARCHAR(255) NOT NULL DEFAULT 'sales_staff', is_active TINYINT(1) NOT NULL DEFAULT 1,
+  email_verified_at TIMESTAMP NULL, password VARCHAR(255) NOT NULL, remember_token VARCHAR(100) NULL,
+  created_at TIMESTAMP NULL, updated_at TIMESTAMP NULL, INDEX users_role_index (role)
+) ENGINE=InnoDB;
+
+CREATE TABLE password_reset_tokens (email VARCHAR(255) PRIMARY KEY, token VARCHAR(255) NOT NULL, created_at TIMESTAMP NULL) ENGINE=InnoDB;
+CREATE TABLE sessions (id VARCHAR(255) PRIMARY KEY, user_id BIGINT UNSIGNED NULL, ip_address VARCHAR(45) NULL, user_agent TEXT NULL, payload LONGTEXT NOT NULL, last_activity INT NOT NULL, INDEX sessions_user_id_index (user_id), INDEX sessions_last_activity_index (last_activity)) ENGINE=InnoDB;
+CREATE TABLE customers (customer_id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255) NOT NULL, phone_number VARCHAR(255) NOT NULL UNIQUE, created_at TIMESTAMP NULL, updated_at TIMESTAMP NULL) ENGINE=InnoDB;
+CREATE TABLE inventory (inventory_id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, quantity_available DECIMAL(14,2) NOT NULL DEFAULT 0, last_updated TIMESTAMP NULL, created_at TIMESTAMP NULL, updated_at TIMESTAMP NULL) ENGINE=InnoDB;
+CREATE TABLE productions (production_id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, production_date DATE NOT NULL, quantity_produced DECIMAL(14,2) NOT NULL, notes TEXT NULL, user_id BIGINT UNSIGNED NOT NULL, created_at TIMESTAMP NULL, updated_at TIMESTAMP NULL, INDEX productions_production_date_index (production_date), CONSTRAINT productions_user_id_foreign FOREIGN KEY (user_id) REFERENCES users(user_id)) ENGINE=InnoDB;
+CREATE TABLE distributions (distribution_id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, distribution_date DATE NOT NULL, quantity_distributed DECIMAL(14,2) NOT NULL, destination VARCHAR(255) NOT NULL, notes TEXT NULL, user_id BIGINT UNSIGNED NOT NULL, created_at TIMESTAMP NULL, updated_at TIMESTAMP NULL, INDEX distributions_distribution_date_index (distribution_date), CONSTRAINT distributions_user_id_foreign FOREIGN KEY (user_id) REFERENCES users(user_id)) ENGINE=InnoDB;
+CREATE TABLE sales (sale_id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, sale_date DATE NOT NULL, quantity_sold DECIMAL(14,2) NOT NULL, unit_price DECIMAL(14,2) NOT NULL, total_amount DECIMAL(14,2) NOT NULL, consumes_inventory TINYINT(1) NOT NULL DEFAULT 1, customer_id BIGINT UNSIGNED NOT NULL, user_id BIGINT UNSIGNED NOT NULL, created_at TIMESTAMP NULL, updated_at TIMESTAMP NULL, INDEX sales_sale_date_index (sale_date), CONSTRAINT sales_customer_id_foreign FOREIGN KEY (customer_id) REFERENCES customers(customer_id), CONSTRAINT sales_user_id_foreign FOREIGN KEY (user_id) REFERENCES users(user_id)) ENGINE=InnoDB;
+CREATE TABLE inventory_transactions (transaction_id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, transaction_type ENUM('IN','OUT','ADJUSTMENT') NOT NULL, quantity DECIMAL(14,2) NOT NULL, reference_type VARCHAR(255) NULL, reference_id BIGINT UNSIGNED NULL, transaction_date DATE NOT NULL, user_id BIGINT UNSIGNED NOT NULL, notes TEXT NULL, created_at TIMESTAMP NULL, updated_at TIMESTAMP NULL, INDEX inventory_transactions_transaction_date_index (transaction_date), INDEX inventory_reference_index (reference_type, reference_id), CONSTRAINT inventory_transactions_user_id_foreign FOREIGN KEY (user_id) REFERENCES users(user_id)) ENGINE=InnoDB;
+CREATE TABLE forecasts (forecast_id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, forecast_date DATE NOT NULL, forecast_period VARCHAR(255) NOT NULL, forecast_quantity DECIMAL(14,2) NOT NULL, method VARCHAR(255) NOT NULL, mae DECIMAL(14,4) NULL, rmse DECIMAL(14,4) NULL, mape DECIMAL(14,4) NULL, created_at TIMESTAMP NULL, updated_at TIMESTAMP NULL) ENGINE=InnoDB;
+CREATE TABLE reports (report_id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, report_type VARCHAR(255) NOT NULL, generated_date TIMESTAMP NOT NULL, generated_by BIGINT UNSIGNED NOT NULL, created_at TIMESTAMP NULL, updated_at TIMESTAMP NULL, CONSTRAINT reports_generated_by_foreign FOREIGN KEY (generated_by) REFERENCES users(user_id)) ENGINE=InnoDB;
+CREATE TABLE security_codes (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, user_id BIGINT UNSIGNED NOT NULL, code_hash VARCHAR(255) NOT NULL, expires_at TIMESTAMP NOT NULL, used_at TIMESTAMP NULL, created_at TIMESTAMP NULL, updated_at TIMESTAMP NULL, CONSTRAINT security_codes_user_id_foreign FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE) ENGINE=InnoDB;
+CREATE TABLE settings (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, `key` VARCHAR(255) NOT NULL UNIQUE, value VARCHAR(255) NOT NULL, created_at TIMESTAMP NULL, updated_at TIMESTAMP NULL) ENGINE=InnoDB;
+
+-- Laravel infrastructure tables (only needed for database cache/queue drivers).
+CREATE TABLE cache (`key` VARCHAR(255) PRIMARY KEY, value MEDIUMTEXT NOT NULL, expiration BIGINT NOT NULL, INDEX cache_expiration_index (expiration)) ENGINE=InnoDB;
+CREATE TABLE cache_locks (`key` VARCHAR(255) PRIMARY KEY, owner VARCHAR(255) NOT NULL, expiration BIGINT NOT NULL, INDEX cache_locks_expiration_index (expiration)) ENGINE=InnoDB;
+CREATE TABLE jobs (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, queue VARCHAR(255) NOT NULL, payload LONGTEXT NOT NULL, attempts SMALLINT UNSIGNED NOT NULL, reserved_at INT UNSIGNED NULL, available_at INT UNSIGNED NOT NULL, created_at INT UNSIGNED NOT NULL, INDEX jobs_queue_index (queue)) ENGINE=InnoDB;
+CREATE TABLE job_batches (id VARCHAR(255) PRIMARY KEY, name VARCHAR(255) NOT NULL, total_jobs INT NOT NULL, pending_jobs INT NOT NULL, failed_jobs INT NOT NULL, failed_job_ids LONGTEXT NOT NULL, options MEDIUMTEXT NULL, cancelled_at INT NULL, created_at INT NOT NULL, finished_at INT NULL) ENGINE=InnoDB;
+CREATE TABLE failed_jobs (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, uuid VARCHAR(255) NOT NULL UNIQUE, connection VARCHAR(255) NOT NULL, queue VARCHAR(255) NOT NULL, payload LONGTEXT NOT NULL, exception LONGTEXT NOT NULL, failed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, INDEX failed_jobs_lookup_index (connection, queue, failed_at)) ENGINE=InnoDB;
