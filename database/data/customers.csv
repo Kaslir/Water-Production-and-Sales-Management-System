@@ -1,0 +1,26 @@
+customer_id,customer_code,name,phone_number,customer_type
+1,CUST-001,Amani Retail Shop,0700000001,Retail Shop
+2,CUST-002,Baraka Restaurant,0700000002,Restaurant
+3,CUST-003,Blue Nile Hotel,0700000003,Hotel
+4,CUST-004,Clear Springs School,0700000004,School
+5,CUST-005,Green Valley Hospital,0700000005,Hospital
+6,CUST-006,Horizon Office,0700000006,Office
+7,CUST-007,Juja Residential Estate,0700000007,Residential Estate
+8,CUST-008,Karibu Supermarket,0700000008,Supermarket
+9,CUST-009,Lakeview Retail Shop,0700000009,Retail Shop
+10,CUST-010,Mwangaza Restaurant,0700000010,Restaurant
+11,CUST-011,Nairobi Hotel,0700000011,Hotel
+12,CUST-012,New Hope School,0700000012,School
+13,CUST-013,Oasis Hospital,0700000013,Hospital
+14,CUST-014,Pamoja Office,0700000014,Office
+15,CUST-015,Riverside Residential Estate,0700000015,Residential Estate
+16,CUST-016,Savannah Supermarket,0700000016,Supermarket
+17,CUST-017,Sunrise Retail Shop,0700000017,Retail Shop
+18,CUST-018,Thika Restaurant,0700000018,Restaurant
+19,CUST-019,Tumaini Hotel,0700000019,Hotel
+20,CUST-020,Unity School,0700000020,School
+21,CUST-021,Upendo Hospital,0700000021,Hospital
+22,CUST-022,Victoria Office,0700000022,Office
+23,CUST-023,Waterfront Residential Estate,0700000023,Residential Estate
+24,CUST-024,Westlands Supermarket,0700000024,Supermarket
+25,CUST-025,Zawadi Retail Shop,0700000025,Retail Shop
