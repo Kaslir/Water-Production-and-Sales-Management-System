@@ -1,0 +1,34 @@
+{
+    "dataset_name": "Synthetic Water Production and Sales Dataset",
+    "dataset_type": "Entirely synthetic",
+    "generation_environment": "Google Colab",
+    "generation_language": "Python",
+    "period_start": "2025-01-01",
+    "period_end": "2025-12-31",
+    "number_of_days": 365,
+    "random_seed": 2026,
+    "opening_inventory_litres": 0.0,
+    "customer_records": 25,
+    "production_records": 365,
+    "sales_records": 2534,
+    "distribution_records": 157,
+    "total_production_litres": 2434321.0,
+    "total_sales_litres": 1896054.0,
+    "total_distribution_litres": 71069.0,
+    "total_revenue_ksh": 66898694.0,
+    "closing_inventory_litres": 467198.0,
+    "generation_rules": {
+        "production": "Baseline production adjusted using monthly seasonality, annual growth, normally distributed variation and occasional maintenance reductions.",
+        "sales": "Baseline demand adjusted using monthly seasonality, weekday effects, annual growth, normally distributed variation and occasional exceptional-demand events.",
+        "distribution": "Synthetic non-sale deliveries generated on Monday, Wednesday and Friday.",
+        "inventory": "Production increases inventory. Sales and distributions decrease inventory. Outgoing quantities cannot make inventory negative.",
+        "reproducibility": "NumPy random generator initialized with seed 2026."
+    },
+    "limitations": [
+        "The data was not collected from a real water company.",
+        "The seasonal assumptions are illustrative and were not estimated from real operational data.",
+        "All customer names and telephone numbers are fictional.",
+        "The dataset is intended for system demonstration and academic testing.",
+        "The data should not be presented as evidence of actual customer demand."
+    ]
+}

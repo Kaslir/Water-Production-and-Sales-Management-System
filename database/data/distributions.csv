@@ -1,0 +1,158 @@
+distribution_id,distribution_date,quantity_distributed,destination,user_role
+1,1/1/2025,420,East Service Point,distribution_staff
+2,1/3/2025,494,West Service Point,distribution_staff
+3,1/6/2025,515,East Service Point,distribution_staff
+4,1/8/2025,508,West Service Point,distribution_staff
+5,1/10/2025,387,Central Depot,distribution_staff
+6,1/13/2025,455,Central Depot,distribution_staff
+7,1/15/2025,516,North Service Point,distribution_staff
+8,1/17/2025,462,East Service Point,distribution_staff
+9,1/20/2025,400,North Service Point,distribution_staff
+10,1/22/2025,428,North Service Point,distribution_staff
+11,1/24/2025,502,North Service Point,distribution_staff
+12,1/27/2025,475,North Service Point,distribution_staff
+13,1/29/2025,500,Central Depot,distribution_staff
+14,1/31/2025,499,Central Depot,distribution_staff
+15,2/3/2025,521,Central Depot,distribution_staff
+16,2/5/2025,492,West Service Point,distribution_staff
+17,2/7/2025,512,Central Depot,distribution_staff
+18,2/10/2025,575,North Service Point,distribution_staff
+19,2/12/2025,468,West Service Point,distribution_staff
+20,2/14/2025,480,East Service Point,distribution_staff
+21,2/17/2025,547,West Service Point,distribution_staff
+22,2/19/2025,523,North Service Point,distribution_staff
+23,2/21/2025,454,East Service Point,distribution_staff
+24,2/24/2025,515,North Service Point,distribution_staff
+25,2/26/2025,490,West Service Point,distribution_staff
+26,2/28/2025,438,Central Depot,distribution_staff
+27,3/3/2025,437,West Service Point,distribution_staff
+28,3/5/2025,325,South Service Point,distribution_staff
+29,3/7/2025,431,East Service Point,distribution_staff
+30,3/10/2025,475,West Service Point,distribution_staff
+31,3/12/2025,425,North Service Point,distribution_staff
+32,3/14/2025,409,West Service Point,distribution_staff
+33,3/17/2025,490,West Service Point,distribution_staff
+34,3/19/2025,522,Central Depot,distribution_staff
+35,3/21/2025,400,West Service Point,distribution_staff
+36,3/24/2025,484,Central Depot,distribution_staff
+37,3/26/2025,350,Central Depot,distribution_staff
+38,3/28/2025,444,South Service Point,distribution_staff
+39,3/31/2025,486,Central Depot,distribution_staff
+40,4/2/2025,324,East Service Point,distribution_staff
+41,4/4/2025,449,East Service Point,distribution_staff
+42,4/7/2025,364,Central Depot,distribution_staff
+43,4/9/2025,477,North Service Point,distribution_staff
+44,4/11/2025,383,South Service Point,distribution_staff
+45,4/14/2025,360,West Service Point,distribution_staff
+46,4/16/2025,335,East Service Point,distribution_staff
+47,4/18/2025,497,West Service Point,distribution_staff
+48,4/21/2025,428,East Service Point,distribution_staff
+49,4/23/2025,389,West Service Point,distribution_staff
+50,4/25/2025,461,Central Depot,distribution_staff
+51,4/28/2025,455,Central Depot,distribution_staff
+52,4/30/2025,420,West Service Point,distribution_staff
+53,5/2/2025,355,North Service Point,distribution_staff
+54,5/5/2025,283,Central Depot,distribution_staff
+55,5/7/2025,360,East Service Point,distribution_staff
+56,5/9/2025,346,Central Depot,distribution_staff
+57,5/12/2025,411,South Service Point,distribution_staff
+58,5/14/2025,403,Central Depot,distribution_staff
+59,5/16/2025,328,East Service Point,distribution_staff
+60,5/19/2025,412,South Service Point,distribution_staff
+61,5/21/2025,512,North Service Point,distribution_staff
+62,5/23/2025,456,Central Depot,distribution_staff
+63,5/26/2025,422,South Service Point,distribution_staff
+64,5/28/2025,317,East Service Point,distribution_staff
+65,5/30/2025,430,West Service Point,distribution_staff
+66,6/2/2025,461,Central Depot,distribution_staff
+67,6/4/2025,400,West Service Point,distribution_staff
+68,6/6/2025,434,West Service Point,distribution_staff
+69,6/9/2025,442,Central Depot,distribution_staff
+70,6/11/2025,380,East Service Point,distribution_staff
+71,6/13/2025,451,West Service Point,distribution_staff
+72,6/16/2025,450,North Service Point,distribution_staff
+73,6/18/2025,491,East Service Point,distribution_staff
+74,6/20/2025,386,Central Depot,distribution_staff
+75,6/23/2025,398,North Service Point,distribution_staff
+76,6/25/2025,373,West Service Point,distribution_staff
+77,6/27/2025,508,North Service Point,distribution_staff
+78,6/30/2025,449,Central Depot,distribution_staff
+79,7/2/2025,405,West Service Point,distribution_staff
+80,7/4/2025,445,North Service Point,distribution_staff
+81,7/7/2025,459,West Service Point,distribution_staff
+82,7/9/2025,496,West Service Point,distribution_staff
+83,7/11/2025,438,West Service Point,distribution_staff
+84,7/14/2025,506,Central Depot,distribution_staff
+85,7/16/2025,507,North Service Point,distribution_staff
+86,7/18/2025,457,Central Depot,distribution_staff
+87,7/21/2025,565,South Service Point,distribution_staff
+88,7/23/2025,437,Central Depot,distribution_staff
+89,7/25/2025,546,South Service Point,distribution_staff
+90,7/28/2025,432,Central Depot,distribution_staff
+91,7/30/2025,489,North Service Point,distribution_staff
+92,8/1/2025,486,Central Depot,distribution_staff
+93,8/4/2025,521,East Service Point,distribution_staff
+94,8/6/2025,498,Central Depot,distribution_staff
+95,8/8/2025,522,East Service Point,distribution_staff
+96,8/11/2025,477,South Service Point,distribution_staff
+97,8/13/2025,478,North Service Point,distribution_staff
+98,8/15/2025,412,North Service Point,distribution_staff
+99,8/18/2025,518,South Service Point,distribution_staff
+100,8/20/2025,537,South Service Point,distribution_staff
+101,8/22/2025,537,Central Depot,distribution_staff
+102,8/25/2025,348,East Service Point,distribution_staff
+103,8/27/2025,477,North Service Point,distribution_staff
+104,8/29/2025,495,West Service Point,distribution_staff
+105,9/1/2025,559,North Service Point,distribution_staff
+106,9/3/2025,456,West Service Point,distribution_staff
+107,9/5/2025,586,Central Depot,distribution_staff
+108,9/8/2025,428,South Service Point,distribution_staff
+109,9/10/2025,570,East Service Point,distribution_staff
+110,9/12/2025,414,North Service Point,distribution_staff
+111,9/15/2025,515,North Service Point,distribution_staff
+112,9/17/2025,528,East Service Point,distribution_staff
+113,9/19/2025,523,Central Depot,distribution_staff
+114,9/22/2025,491,North Service Point,distribution_staff
+115,9/24/2025,430,West Service Point,distribution_staff
+116,9/26/2025,483,East Service Point,distribution_staff
+117,9/29/2025,468,Central Depot,distribution_staff
+118,10/1/2025,557,East Service Point,distribution_staff
+119,10/3/2025,317,West Service Point,distribution_staff
+120,10/6/2025,472,East Service Point,distribution_staff
+121,10/8/2025,500,West Service Point,distribution_staff
+122,10/10/2025,472,South Service Point,distribution_staff
+123,10/13/2025,390,West Service Point,distribution_staff
+124,10/15/2025,513,West Service Point,distribution_staff
+125,10/17/2025,428,North Service Point,distribution_staff
+126,10/20/2025,547,West Service Point,distribution_staff
+127,10/22/2025,504,Central Depot,distribution_staff
+128,10/24/2025,503,East Service Point,distribution_staff
+129,10/27/2025,498,West Service Point,distribution_staff
+130,10/29/2025,418,South Service Point,distribution_staff
+131,10/31/2025,487,West Service Point,distribution_staff
+132,11/3/2025,400,South Service Point,distribution_staff
+133,11/5/2025,351,North Service Point,distribution_staff
+134,11/7/2025,403,West Service Point,distribution_staff
+135,11/10/2025,448,Central Depot,distribution_staff
+136,11/12/2025,305,Central Depot,distribution_staff
+137,11/14/2025,335,South Service Point,distribution_staff
+138,11/17/2025,368,South Service Point,distribution_staff
+139,11/19/2025,419,North Service Point,distribution_staff
+140,11/21/2025,313,West Service Point,distribution_staff
+141,11/24/2025,390,South Service Point,distribution_staff
+142,11/26/2025,371,East Service Point,distribution_staff
+143,11/28/2025,436,South Service Point,distribution_staff
+144,12/1/2025,516,South Service Point,distribution_staff
+145,12/3/2025,358,South Service Point,distribution_staff
+146,12/5/2025,523,South Service Point,distribution_staff
+147,12/8/2025,502,North Service Point,distribution_staff
+148,12/10/2025,435,North Service Point,distribution_staff
+149,12/12/2025,470,East Service Point,distribution_staff
+150,12/15/2025,472,Central Depot,distribution_staff
+151,12/17/2025,555,East Service Point,distribution_staff
+152,12/19/2025,475,Central Depot,distribution_staff
+153,12/22/2025,479,East Service Point,distribution_staff
+154,12/24/2025,430,South Service Point,distribution_staff
+155,12/26/2025,449,East Service Point,distribution_staff
+156,12/29/2025,538,East Service Point,distribution_staff
+157,12/31/2025,529,East Service Point,distribution_staff
