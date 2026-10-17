@@ -32,6 +32,10 @@ class AnalyticsController extends Controller
             $salesQuery->where('sale_date', '>=', $startDate->toDateString());
         }
         $dailySales = $salesQuery->groupBy('sale_date')->orderBy('sale_date')->get();
+        $recordedSalesDays = $dailySales->count();
+        $totalLitresSold = (float) $dailySales->sum('quantity');
+        $totalSalesValue = (float) $dailySales->sum('revenue');
+        $averageLitresPerRecordedDay = $recordedSalesDays ? $totalLitresSold / $recordedSalesDays : 0;
         $values = $dailySales->pluck('quantity')->map(fn ($value) => (float) $value)->values()->all();
         $forecast = $this->forecast($values);
         $movementsQuery = InventoryTransaction::selectRaw("transaction_date, SUM(CASE WHEN transaction_type = 'OUT' THEN quantity ELSE 0 END) consumed");
@@ -39,17 +43,80 @@ class AnalyticsController extends Controller
             $movementsQuery->where('transaction_date', '>=', $startDate->toDateString());
         }
         $movements = $movementsQuery->groupBy('transaction_date')->orderBy('transaction_date')->get();
-        return view('analytics.index', compact('dailySales', 'forecast', 'movements', 'period', 'latestDate'));
+
+        $forecastHistory = $period === 'all' ? $dailySales : Sale::selectRaw('sale_date, SUM(quantity_sold) quantity')
+            ->groupBy('sale_date')->orderBy('sale_date')->get();
+        $outlookForecast = $period === 'all' ? $forecast : $this->forecast(
+            $forecastHistory->pluck('quantity')->map(fn ($value) => (float) $value)->values()->all()
+        );
+        $outlook = $this->futureDemandOutlook($forecastHistory, $outlookForecast);
+
+        return view('analytics.index', compact('dailySales', 'forecast', 'movements', 'period', 'totalLitresSold', 'totalSalesValue', 'averageLitresPerRecordedDay', 'outlook'));
+    }
+
+    private function futureDemandOutlook($history, array $forecast): array
+    {
+        if (! $forecast['available']) {
+            return ['available' => false];
+        }
+
+        $lastRecordedDate = $history->last()->sale_date;
+        $today = CarbonImmutable::today('Africa/Nairobi');
+        $startDate = $today->addDay();
+        if ($lastRecordedDate->gte($startDate)) {
+            $startDate = CarbonImmutable::parse($lastRecordedDate)->addDay();
+        }
+
+        $dailyRate = max(0, (float) $forecast['forecast_quantity']);
+        $periods = [
+            ['label' => 'Next 1 week', 'end' => $startDate->addWeek()->subDay()],
+            ['label' => 'Next 1 month', 'end' => $startDate->addMonthNoOverflow()->subDay()],
+            ['label' => 'Next 3 months', 'end' => $startDate->addMonthsNoOverflow(3)->subDay()],
+            ['label' => 'Next 6 months', 'end' => $startDate->addMonthsNoOverflow(6)->subDay()],
+            ['label' => 'Next 1 year', 'end' => $startDate->addYearNoOverflow()->subDay()],
+        ];
+        $rows = [];
+        foreach ($periods as $period) {
+            $days = (int) $startDate->diffInDays($period['end']) + 1;
+            $rows[] = [
+                'label' => $period['label'],
+                'start' => $startDate,
+                'end' => $period['end'],
+                'days' => $days,
+                'litres' => $dailyRate * $days,
+            ];
+        }
+
+        return [
+            'available' => true,
+            'method' => $forecast['best_method'],
+            'daily_rate' => $dailyRate,
+            'last_recorded_date' => $lastRecordedDate,
+            'is_stale' => $lastRecordedDate->lt($today->subDays(7)),
+            'rows' => $rows,
+        ];
     }
 
     private function forecast(array $values): array
     {
-        if (count($values) < 2) return ['forecast_quantity'=>0, 'best_method'=>'Not enough history', 'moving_average'=>['mae'=>0,'rmse'=>0,'mape'=>0], 'exponential_smoothing'=>['mae'=>0,'rmse'=>0,'mape'=>0]];
-        $python = env('PYTHON_BINARY', 'python');
-        $process = new Process([$python, base_path('analytics/analyze.py')]);
-        $process->setInput(json_encode(['sales'=>$values])); $process->run();
-        if ($process->isSuccessful() && ($result = json_decode($process->getOutput(), true))) return $result;
-        $average = array_sum($values) / count($values);
-        return ['forecast_quantity'=>round($average,2), 'best_method'=>'Moving average', 'moving_average'=>['mae'=>0,'rmse'=>0,'mape'=>0], 'exponential_smoothing'=>['mae'=>0,'rmse'=>0,'mape'=>0]];
+        if (count($values) < 2) {
+            return ['available' => false];
+        }
+
+        try {
+            $process = new Process([env('PYTHON_BINARY', 'python'), base_path('analytics/analyze.py')]);
+            $process->setInput(json_encode(['sales' => $values]));
+            $process->run();
+            $result = json_decode($process->getOutput(), true);
+            if ($process->isSuccessful() && is_array($result)
+                && in_array($result['best_method'] ?? null, ['moving_average', 'exponential_smoothing'], true)
+                && isset($result['forecast_quantity'], $result['moving_average']['mae'], $result['exponential_smoothing']['mae'])) {
+                return ['available' => true] + $result;
+            }
+        } catch (\Throwable $exception) {
+            return ['available' => false];
+        }
+
+        return ['available' => false];
     }
 }
