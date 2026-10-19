@@ -11,6 +11,7 @@ class AnalyticsController extends Controller
 {
     public function index(Request $request)
     {
+        // Selecting the analysis period
         $period = $request->query('period', 'all');
         if (! in_array($period, ['week', 'month', '3months', '6months', 'year', 'all'], true)) {
             $period = 'all';
@@ -27,6 +28,7 @@ class AnalyticsController extends Controller
             default => null,
         } : null;
 
+        // Retrieving and calculating sales
         $salesQuery = Sale::selectRaw('sale_date, SUM(quantity_sold) quantity, SUM(total_amount) revenue');
         if ($startDate) {
             $salesQuery->where('sale_date', '>=', $startDate->toDateString());
@@ -36,14 +38,18 @@ class AnalyticsController extends Controller
         $totalLitresSold = (float) $dailySales->sum('quantity');
         $totalSalesValue = (float) $dailySales->sum('revenue');
         $averageLitresPerRecordedDay = $recordedSalesDays ? $totalLitresSold / $recordedSalesDays : 0;
+        // Preparing data for demand forecasting
         $values = $dailySales->pluck('quantity')->map(fn ($value) => (float) $value)->values()->all();
         $forecast = $this->forecast($values);
+
+        // Tracking inventory consumption
         $movementsQuery = InventoryTransaction::selectRaw("transaction_date, SUM(CASE WHEN transaction_type = 'OUT' THEN quantity ELSE 0 END) consumed");
         if ($startDate) {
             $movementsQuery->where('transaction_date', '>=', $startDate->toDateString());
         }
         $movements = $movementsQuery->groupBy('transaction_date')->orderBy('transaction_date')->get();
 
+        // Generating future demand projections
         $forecastHistory = $period === 'all' ? $dailySales : Sale::selectRaw('sale_date, SUM(quantity_sold) quantity')
             ->groupBy('sale_date')->orderBy('sale_date')->get();
         $outlookForecast = $period === 'all' ? $forecast : $this->forecast(
@@ -51,6 +57,7 @@ class AnalyticsController extends Controller
         );
         $outlook = $this->futureDemandOutlook($forecastHistory, $outlookForecast);
 
+        // Displaying the analytics dashboard
         return view('analytics.index', compact('dailySales', 'forecast', 'movements', 'period', 'totalLitresSold', 'totalSalesValue', 'averageLitresPerRecordedDay', 'outlook'));
     }
 
@@ -99,10 +106,12 @@ class AnalyticsController extends Controller
 
     private function forecast(array $values): array
     {
+        // Checking whether forecasting is possible
         if (count($values) < 2) {
             return ['available' => false];
         }
 
+        // Connecting Laravel to the Python forecasting model
         try {
             $process = new Process([env('PYTHON_BINARY', 'python'), base_path('analytics/analyze.py')]);
             $process->setInput(json_encode(['sales' => $values]));
