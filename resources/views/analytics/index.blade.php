@@ -1,6 +1,7 @@
 @extends('layouts.app')
 @section('page-title','Analytics')
 @section('content')
+<div class="alert alert-info">These charts use the earlier aggregate-litre sales data. Product-level bottled-water forecasts are on Production planning and are kept separate.</div>
 <form method="get" action="{{ route('analytics.index') }}" class="toolbar mb-3">
     <label for="analytics-period" class="form-label mb-0">Time:</label>
     <select id="analytics-period" name="period" class="form-select w-auto">

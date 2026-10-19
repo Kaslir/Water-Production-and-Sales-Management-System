@@ -1,0 +1,5 @@
+@extends('layouts.app')
+@section('page-title', 'Audit trail')
+@section('content')
+<div class="panel mb-3"><strong>Read-only action history</strong><div class="tiny">Passwords, verification codes, and session tokens are never shown.</div><form method="get" class="d-flex gap-2 mt-2"><input class="form-control w-auto" name="event" value="{{ $event }}" placeholder="Filter event"><button class="btn btn-brand">Filter</button></form></div><div class="panel table-responsive"><table class="table"><thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Record</th><th>Reason</th><th>Changes</th></tr></thead><tbody>@forelse($logs as $log)<tr><td>{{ $log->created_at->format('d M Y H:i') }}</td><td>{{ $log->actor?->name ?? 'System' }}</td><td>{{ $log->event }}</td><td>{{ class_basename($log->subject_type ?? '') }} #{{ $log->subject_id }}</td><td>{{ $log->reason }}</td><td><details><summary>View safe values</summary><small>Before: {{ json_encode($log->before_values) }}<br>After: {{ json_encode($log->after_values) }}</small></details></td></tr>@empty<tr><td colspan="6">No audit entries yet.</td></tr>@endforelse</tbody></table>{{ $logs->links() }}</div>
+@endsection
