@@ -80,6 +80,11 @@ class PackagedWaterWorkflowTest extends TestCase
         $this->assertDatabaseHas('audit_logs', ['event' => 'order.dispatched', 'actor_id' => $actor->user_id]);
         $this->actingAs($actor)->get(route('packaged.orders.show', $order))->assertOk()->assertSee('EARLY')->assertSee('LATE');
         $this->actingAs($actor)->get(route('packaged.reports.index'))->assertOk()->assertSee('1,200.00');
+        $this->actingAs($actor)->get(route('dashboard'))->assertOk()->assertSee('Recent customer orders')->assertSee('EARLY')->assertSee('1,200');
+        $this->actingAs($actor)->get(route('production.index'))->assertOk()->assertSee('EARLY')->assertSee('cases');
+        $this->actingAs($actor)->get(route('inventory.index'))->assertOk()->assertSee('AVAILABLE SALEABLE STOCK')->assertSee('Customer dispatch');
+        $this->actingAs($actor)->get(route('distribution.index'))->assertOk()->assertSee('Nairobi')->assertSee('Hotel');
+        $this->actingAs($actor)->get(route('sales.index'))->assertOk()->assertSee('Hotel')->assertSee('1,200.00');
         $line = $order->dispatch()->firstOrFail()->lines()->firstOrFail();
         $return = $service->recordReturn($invoice, $line, 1, 'Damaged bottles', $actor->user_id);
         $this->assertEquals(100, $return->credit_amount);

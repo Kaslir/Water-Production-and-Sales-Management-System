@@ -3,10 +3,14 @@
 namespace App\Http\Controllers;
 
 use App\Models\Customer;
+use App\Models\Dispatch;
 use App\Models\Distribution;
 use App\Models\InventoryTransaction;
+use App\Models\Invoice;
 use App\Models\Production;
+use App\Models\ProductionBatch;
 use App\Models\Sale;
+use App\Models\StockMovement;
 use App\Services\InventoryService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -16,6 +20,10 @@ class OperationsController extends Controller
     public function index(string $type)
     {
         $this->authorizeType(request(), $type);
+        if ($type !== 'customers') {
+            return $this->packagedIndex($type);
+        }
+
         $model = ['production' => Production::class, 'distribution' => Distribution::class, 'sales' => Sale::class, 'customers' => Customer::class, 'inventory' => InventoryTransaction::class][$type] ?? abort(404);
         $rows = $model::query()->latest()->paginate(12);
 
@@ -26,7 +34,42 @@ class OperationsController extends Controller
     {
         $this->authorizeType(request(), $type);
 
+        if ($type === 'production') {
+            return redirect()->route('packaged.batches.create');
+        }
+        if ($type === 'distribution' || $type === 'sales') {
+            return redirect()->route('packaged.orders.create');
+        }
+
         return view('operations.form', ['type' => $type, 'customers' => Customer::orderBy('name')->get()]);
+    }
+
+    private function packagedIndex(string $type)
+    {
+        $rows = match ($type) {
+            'production' => ProductionBatch::with('product')->orderByDesc('produced_on')->orderByDesc('id')->paginate(20),
+            'inventory' => StockMovement::with('batch.product')->orderByDesc('id')->paginate(20),
+            'distribution' => Dispatch::with(['order.customer', 'lines'])->orderByDesc('dispatched_on')->orderByDesc('id')->paginate(20),
+            'sales' => Invoice::with(['order.customer', 'order.items', 'payments'])->orderByDesc('issued_on')->orderByDesc('id')->paginate(20),
+            default => abort(404),
+        };
+
+        $summary = match ($type) {
+            'production' => ['label' => 'Cases produced', 'value' => ProductionBatch::sum('cases_produced'), 'suffix' => 'cases'],
+            'inventory' => ['label' => 'Available saleable stock', 'value' => ProductionBatch::where('status', 'released')->whereDate('expires_on', '>=', today())->selectRaw('COALESCE(SUM(cases_on_hand - cases_reserved), 0) as total')->value('total'), 'suffix' => 'cases'],
+            'distribution' => ['label' => 'Cases dispatched', 'value' => DB::table('dispatch_lines')->sum('cases'), 'suffix' => 'cases'],
+            'sales' => ['label' => 'Invoiced sales', 'value' => Invoice::sum('amount'), 'suffix' => 'KSh'],
+        };
+
+        $stockByProduct = $type === 'inventory'
+            ? DB::table('products')->leftJoin('production_batches', function ($join) {
+                $join->on('products.id', '=', 'production_batches.product_id')
+                    ->where('production_batches.status', '=', 'released')
+                    ->where('production_batches.expires_on', '>=', today()->toDateString());
+            })->select('products.name')->selectRaw('COALESCE(SUM(production_batches.cases_on_hand - production_batches.cases_reserved), 0) as cases')->groupBy('products.id', 'products.name')->orderBy('products.volume_ml')->get()
+            : collect();
+
+        return view('operations.packaged-index', compact('type', 'rows', 'summary', 'stockByProduct'));
     }
 
     public function store(Request $r, string $type, InventoryService $stock)
