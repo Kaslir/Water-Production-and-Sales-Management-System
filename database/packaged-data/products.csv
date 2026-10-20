@@ -1,0 +1,5 @@
+product_id,sku,name,volume_ml,bottles_per_case,price_per_case_ksh
+1,WATER-500ML,500 mL bottled water,500,24,620
+2,WATER-1L,1 L bottled water,1000,12,540
+3,WATER-5L,5 L bottled water,5000,4,720
+4,WATER-20L,20 L bottled water,20000,1,300
