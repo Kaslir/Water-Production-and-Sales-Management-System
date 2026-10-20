@@ -2,7 +2,8 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\{InventoryTransaction, Sale};
+use App\Models\InventoryTransaction;
+use App\Models\Sale;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Symfony\Component\Process\Process;
@@ -118,8 +119,8 @@ class AnalyticsController extends Controller
             $process->run();
             $result = json_decode($process->getOutput(), true);
             if ($process->isSuccessful() && is_array($result)
-                && in_array($result['best_method'] ?? null, ['moving_average', 'exponential_smoothing'], true)
-                && isset($result['forecast_quantity'], $result['moving_average']['mae'], $result['exponential_smoothing']['mae'])) {
+                && ($result['best_method'] ?? null) === 'moving_average'
+                && isset($result['forecast_quantity'], $result['moving_average']['mae'])) {
                 return ['available' => true] + $result;
             }
         } catch (\Throwable $exception) {

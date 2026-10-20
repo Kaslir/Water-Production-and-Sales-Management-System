@@ -7,7 +7,7 @@ from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
 
 HORIZONS = (7, 30)
 MIN_HISTORY = 90
-METHODS = ("seasonal_naive", "exponential_smoothing", "random_forest", "gradient_boosting")
+METHODS = ("moving_average", "random_forest", "gradient_boosting")
 
 
 def features(values, origin):
@@ -24,14 +24,8 @@ def features(values, origin):
     ]
 
 
-def baseline(method, history, horizon):
-    if method == "seasonal_naive":
-        week = history[-7:]
-        return sum(week[index % 7] for index in range(horizon))
-    level = history[0]
-    for actual in history[1:]:
-        level = 0.3 * actual + 0.7 * level
-    return max(0.0, level * horizon)
+def baseline(history, horizon):
+    return max(0.0, float(np.mean(history[-7:])) * horizon)
 
 
 def model_for(method):
@@ -74,7 +68,7 @@ def forecast_horizon(values, horizon):
                 estimator.fit(x_train, y_train)
                 predictions = estimator.predict(x_test)
             else:
-                predictions = [baseline(method, values[: origin + 1], horizon) for origin in testing_origins]
+                predictions = [baseline(values[: origin + 1], horizon) for origin in testing_origins]
             actual_by_method[method].extend(actuals)
             predicted_by_method[method].extend(max(0.0, float(prediction)) for prediction in predictions)
 
@@ -102,7 +96,7 @@ def forecast_horizon(values, horizon):
             )
             estimate = estimator.predict(latest_features)[0]
         else:
-            estimate = baseline(method, latest_history, horizon)
+            estimate = baseline(latest_history, horizon)
         scores[method]["predicted_cases"] = round(max(0.0, float(estimate)), 2)
 
     return {"available": True, "best_method": best, "methods": scores}

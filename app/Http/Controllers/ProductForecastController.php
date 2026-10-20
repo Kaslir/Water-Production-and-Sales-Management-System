@@ -19,7 +19,9 @@ class ProductForecastController extends Controller
     public function index(ProductForecastService $service): View
     {
         $products = Product::query()->orderBy('volume_ml')->get();
-        $latestForecasts = ProductForecast::query()->whereDate('origin_date', today())->get()->groupBy('product_id');
+        $latestForecasts = ProductForecast::query()->whereDate('origin_date', today())
+            ->whereIn('method', ['moving_average', 'random_forest', 'gradient_boosting'])
+            ->get()->groupBy('product_id');
         $stock = ProductionBatch::query()->where('status', 'released')->whereDate('expires_on', '>', today())->get()->groupBy('product_id')->map(fn ($batches) => $batches->sum(fn ($batch) => $batch->cases_on_hand - $batch->cases_reserved));
         $nearExpiry = ProductionBatch::query()->with('product')->where('cases_on_hand', '>', 0)->whereDate('expires_on', '<=', today()->addDays(30))->orderBy('expires_on')->get();
         $planning = [];
@@ -55,7 +57,12 @@ class ProductForecastController extends Controller
 
     public function decision(Request $request, ProductForecast $forecast, AuditTrail $auditTrail, ProductForecastService $service): RedirectResponse
     {
-        abort_unless((bool) ($forecast->evaluation['selected'] ?? false) && $forecast->origin_date->isToday(), 422);
+        abort_unless(
+            in_array($forecast->method, ['moving_average', 'random_forest', 'gradient_boosting'], true)
+            && (bool) ($forecast->evaluation['selected'] ?? false)
+            && $forecast->origin_date->isToday(),
+            422
+        );
         $data = $request->validate([
             'approved_cases' => ['required', 'integer', 'min:0'],
             'reason' => ['nullable', 'string', 'max:2000'],
