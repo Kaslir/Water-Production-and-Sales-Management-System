@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\AuditLog;
 use App\Models\PasswordResetCode;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -25,7 +26,9 @@ class RecoveryAndAuditTest extends TestCase
     public function test_auditor_can_read_but_not_change_operational_records(): void
     {
         $auditor = User::create(['name' => 'Auditor', 'email' => 'auditor@example.test', 'password' => 'password-long-enough', 'role' => 'auditor', 'is_active' => true]);
+        AuditLog::create(['actor_id' => $auditor->user_id, 'event' => 'batch.released', 'subject_type' => 'ProductionBatch', 'subject_id' => 12]);
         $this->actingAs($auditor)->get(route('audit.index'))->assertOk();
+        $this->actingAs($auditor)->get(route('audit.index'))->assertSee('batch.released')->assertSee(now()->format('d M Y'));
         $this->actingAs($auditor)->get(route('technical-events.index'))->assertForbidden();
         $this->actingAs($auditor)->post(route('packaged.expenses.store'), ['expense_date' => today()->toDateString(), 'category' => 'Transport', 'amount' => 100])->assertForbidden();
     }
