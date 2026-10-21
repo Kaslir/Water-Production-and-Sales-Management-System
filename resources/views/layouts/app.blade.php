@@ -40,7 +40,7 @@
         <div class="nav-heading">INSIGHTS</div>
         <nav>
             <a class="side-link {{ request()->routeIs('analytics.*') ? 'active' : '' }}" href="{{ route('analytics.index') }}"><i class="bi bi-graph-up-arrow"></i>Analytics</a>
-            <button class="side-link side-link-inert" type="button"><i class="bi bi-file-earmark-bar-graph"></i>Reports</button>
+            <a class="side-link {{ request()->routeIs('reports.*') ? 'active' : '' }}" href="{{ route('reports.index') }}"><i class="bi bi-file-earmark-bar-graph"></i>Reports</a>
         </nav>
     @endif
     <div class="sidebar-bottom"><div class="profile"><div class="avatar">{{ str(auth()->user()->name)->substr(0, 2)->upper() }}</div><div><strong>{{ auth()->user()->name }}</strong><br><span class="text-white-50">{{ str_replace('_', ' ', auth()->user()->role) }}</span></div></div><form method="post" action="{{ route('logout') }}">@csrf<button class="side-link border-0 bg-transparent w-100 text-start"><i class="bi bi-box-arrow-left"></i>Log out</button></form></div>

@@ -7,7 +7,12 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class ProductionForecastDecision extends Model
 {
-    protected $fillable = ['product_forecast_id', 'recommended_cases', 'approved_cases', 'reason', 'decided_by'];
+    protected $fillable = ['product_forecast_id', 'recommended_cases', 'approved_cases', 'planned_for', 'cases_completed', 'plan_status', 'reason', 'decided_by'];
+
+    protected function casts(): array
+    {
+        return ['planned_for' => 'date'];
+    }
 
     public function forecast(): BelongsTo
     {

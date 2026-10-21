@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Product;
 use App\Models\ProductForecast;
+use App\Models\ProductionForecastDecision;
 use App\Models\TechnicalEvent;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
@@ -27,11 +28,18 @@ class ProductForecastService
             ->where('sales_orders.status', 'confirmed')
             ->sum('sales_order_items.cases_ordered');
         $demandToCover = max((float) $forecast->predicted_cases, $confirmedCases);
+        $activePlan = ProductionForecastDecision::query()
+            ->whereHas('forecast', fn ($query) => $query->where('product_id', $productId))
+            ->where('plan_status', 'planned')
+            ->whereDate('planned_for', '>=', CarbonImmutable::today('Africa/Nairobi')->toDateString())
+            ->whereDate('planned_for', '<=', CarbonImmutable::today('Africa/Nairobi')->addDays($horizon)->toDateString())
+            ->latest('id')->first();
+        $plannedCases = $activePlan ? max(0, $activePlan->approved_cases - $activePlan->cases_completed) : 0;
 
-        return ['eligible_stock' => $eligibleStock, 'confirmed_cases' => $confirmedCases, 'recommended_cases' => max(0, (int) ceil($demandToCover - $eligibleStock))];
+        return ['eligible_stock' => $eligibleStock, 'confirmed_cases' => $confirmedCases, 'planned_cases' => $plannedCases, 'recommended_cases' => max(0, (int) ceil($demandToCover - $eligibleStock - $plannedCases))];
     }
 
-    public function run(Product $product): array
+    public function run(Product $product, bool $historical = false): array
     {
         $rows = DB::table('sales_order_items')
             ->join('sales_orders', 'sales_order_items.sales_order_id', '=', 'sales_orders.id')
@@ -44,14 +52,16 @@ class ProductForecastService
         if ($rows->isEmpty()) {
             return ['available' => false, 'reason' => 'No dated orders have been recorded for this product.'];
         }
-        if (CarbonImmutable::parse($rows->last()->order_day)->diffInDays(CarbonImmutable::today('Africa/Nairobi')) > 14) {
-            return ['available' => false, 'reason' => 'Recent product-level orders are required before a current forecast can be evaluated.'];
+        $lastOrderDate = CarbonImmutable::parse($rows->last()->order_day);
+        if (! $historical && $lastOrderDate->diffInDays(CarbonImmutable::today('Africa/Nairobi')) > 14) {
+            return ['available' => false, 'reason' => 'The latest order is too old for a current forecast. Use the historical demonstration or record recent genuine orders.'];
         }
         $byDate = $rows->pluck('cases', 'order_day');
         $date = CarbonImmutable::parse($rows->first()->order_day);
         $today = CarbonImmutable::today('Africa/Nairobi');
+        $originDate = $historical ? $lastOrderDate : $today;
         $dailyCases = [];
-        while ($date->lte($today)) {
+        while ($date->lte($originDate)) {
             $dailyCases[] = (float) ($byDate[$date->toDateString()] ?? 0);
             $date = $date->addDay();
         }
@@ -70,8 +80,8 @@ class ProductForecastService
             }
             foreach ($report['methods'] as $method => $values) {
                 ProductForecast::updateOrCreate(
-                    ['product_id' => $product->id, 'origin_date' => $today->toDateString(), 'horizon_days' => (int) $horizon, 'method' => $method],
-                    ['predicted_cases' => $values['predicted_cases'], 'mae_cases' => $values['mae_cases'], 'bias_cases' => $values['bias_cases'], 'evaluation' => ['backtest_points' => $values['backtest_points'], 'selected' => $method === $report['best_method'], 'source' => 'recorded packaged-water orders']]
+                    ['product_id' => $product->id, 'origin_date' => $originDate->toDateString(), 'horizon_days' => (int) $horizon, 'method' => $method],
+                    ['predicted_cases' => $values['predicted_cases'], 'mae_cases' => $values['mae_cases'], 'bias_cases' => $values['bias_cases'], 'evaluation' => ['backtest_points' => $values['backtest_points'], 'selected' => $method === $report['best_method'], 'mode' => $historical ? 'historical_demo' : 'current', 'source' => 'recorded packaged-water orders']]
                 );
             }
         }

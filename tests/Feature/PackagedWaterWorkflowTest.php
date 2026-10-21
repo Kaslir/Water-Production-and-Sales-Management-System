@@ -4,10 +4,13 @@ namespace Tests\Feature;
 
 use App\Models\Customer;
 use App\Models\Product;
+use App\Models\ProductForecast;
 use App\Models\ProductionBatch;
+use App\Models\ProductionForecastDecision;
 use App\Models\StockMovement;
 use App\Models\User;
 use App\Services\PackagedWaterService;
+use App\Services\ProductForecastService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
@@ -85,6 +88,14 @@ class PackagedWaterWorkflowTest extends TestCase
         $this->actingAs($actor)->get(route('inventory.index'))->assertOk()->assertSee('AVAILABLE SALEABLE STOCK')->assertSee('Customer dispatch');
         $this->actingAs($actor)->get(route('distribution.index'))->assertOk()->assertSee('Nairobi')->assertSee('Hotel');
         $this->actingAs($actor)->get(route('sales.index'))->assertOk()->assertSee('Hotel')->assertSee('1,200.00');
+        $this->actingAs($actor)->get(route('analytics.index'))->assertOk()->assertSee('Customer order demand')->assertSee('12');
+        foreach (['sales', 'production', 'inventory', 'distribution', 'customers', 'costs', 'expiry', 'disposals'] as $reportType) {
+            $this->actingAs($actor)->get(route('reports.index', ['type' => $reportType, 'from' => today()->subDays(2)->toDateString(), 'to' => today()->addDays(30)->toDateString()]))->assertOk();
+        }
+        $this->actingAs($actor)->post('/production', ['quantity' => 100])->assertStatus(405);
+        $this->actingAs($actor)->post('/distribution', ['quantity' => 100])->assertStatus(405);
+        $this->actingAs($actor)->post('/sales', ['quantity' => 100])->assertStatus(405);
+        $this->actingAs($actor)->post('/inventory/adjust', ['quantity' => 100])->assertNotFound();
         $line = $order->dispatch()->firstOrFail()->lines()->firstOrFail();
         $return = $service->recordReturn($invoice, $line, 1, 'Damaged bottles', $actor->user_id);
         $this->assertEquals(100, $return->credit_amount);
@@ -137,5 +148,72 @@ class PackagedWaterWorkflowTest extends TestCase
             $this->assertSame(0, $batch->fresh()->cases_reserved);
             $this->assertDatabaseCount('batch_reservations', 0);
         }
+    }
+
+    public function test_approved_plan_is_deducted_and_completed_by_linked_batches(): void
+    {
+        $actor = $this->actor();
+        $product = Product::where('sku', 'WATER-500ML')->firstOrFail();
+        $forecast = ProductForecast::create([
+            'product_id' => $product->id,
+            'origin_date' => today(),
+            'horizon_days' => 7,
+            'method' => 'moving_average',
+            'predicted_cases' => 50,
+            'mae_cases' => 2,
+            'bias_cases' => 0,
+            'evaluation' => ['selected' => true, 'mode' => 'current'],
+        ]);
+        $forecastService = app(ProductForecastService::class);
+        $this->assertSame(50, $forecastService->recommendation($forecast)['recommended_cases']);
+        $this->actingAs($actor)->post(route('packaged.forecasts.decision', $forecast), [
+            'approved_cases' => 40,
+            'planned_for' => today()->addDays(3)->toDateString(),
+            'reason' => 'Limited bottle supply',
+        ])->assertRedirect();
+        $plan = ProductionForecastDecision::firstOrFail();
+        $this->assertSame(40, $forecastService->recommendation($forecast)['planned_cases']);
+        $this->assertSame(10, $forecastService->recommendation($forecast)['recommended_cases']);
+
+        $service = app(PackagedWaterService::class);
+        foreach ([15, 25] as $index => $cases) {
+            $batch = $service->createBatch([
+                'product_id' => $product->id,
+                'production_forecast_decision_id' => $plan->id,
+                'batch_code' => 'PLAN-'.$index,
+                'produced_on' => today()->toDateString(),
+                'expires_on' => today()->addDays(30)->toDateString(),
+                'cases_produced' => $cases,
+            ], $actor->user_id);
+            $service->releaseBatch($batch, $actor->user_id, 'Passed quality checks');
+        }
+        $this->assertSame('completed', $plan->fresh()->plan_status);
+        $this->assertSame(40, $plan->fresh()->cases_completed);
+        $this->assertSame(0, $forecastService->recommendation($forecast)['planned_cases']);
+        $this->assertSame(10, $forecastService->recommendation($forecast)['recommended_cases']);
+    }
+
+    public function test_historical_forecast_cannot_be_approved_as_a_current_plan(): void
+    {
+        $actor = $this->actor();
+        $product = Product::where('sku', 'WATER-1L')->firstOrFail();
+        $forecast = ProductForecast::create([
+            'product_id' => $product->id,
+            'origin_date' => today()->subDays(21),
+            'horizon_days' => 7,
+            'method' => 'random_forest',
+            'predicted_cases' => 120,
+            'mae_cases' => 8,
+            'bias_cases' => 1,
+            'evaluation' => ['selected' => true, 'mode' => 'historical_demo'],
+        ]);
+
+        $this->actingAs($actor)->get(route('packaged.forecasts.index'))->assertOk()
+            ->assertSee('Historical demonstration')->assertSee('No present-day production quantity is recommended');
+        $this->actingAs($actor)->post(route('packaged.forecasts.decision', $forecast), [
+            'approved_cases' => 120,
+            'planned_for' => today()->addDay()->toDateString(),
+        ])->assertStatus(422);
+        $this->assertDatabaseCount('production_forecast_decisions', 0);
     }
 }

@@ -96,9 +96,7 @@ Route::middleware(['auth', 'active'])->group(function () {
     Route::get('/customers', [OperationsController::class, 'index'])->defaults('type', 'customers')->name('customers.index');
 
     Route::get('/{type}/create', [OperationsController::class, 'create'])
-        ->whereIn('type', ['production', 'distribution', 'sales', 'customers'])->name('operations.create');
+        ->whereIn('type', ['customers'])->name('operations.create');
     Route::post('/{type}', [OperationsController::class, 'store'])
-        ->whereIn('type', ['production', 'distribution', 'sales', 'customers'])->name('operations.store');
-    Route::post('/inventory/adjust', [OperationsController::class, 'adjust'])
-        ->middleware('role:administrator,manager,inventory_staff')->name('inventory.adjust');
+        ->whereIn('type', ['customers'])->name('operations.store');
 });

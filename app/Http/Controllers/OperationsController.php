@@ -4,47 +4,53 @@ namespace App\Http\Controllers;
 
 use App\Models\Customer;
 use App\Models\Dispatch;
-use App\Models\Distribution;
-use App\Models\InventoryTransaction;
 use App\Models\Invoice;
-use App\Models\Production;
 use App\Models\ProductionBatch;
-use App\Models\Sale;
 use App\Models\StockMovement;
-use App\Services\InventoryService;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\View\View;
 
 class OperationsController extends Controller
 {
-    public function index(string $type)
+    public function index(Request $request, string $type): View
     {
-        $this->authorizeType(request(), $type);
-        if ($type !== 'customers') {
-            return $this->packagedIndex($type);
+        $this->authorizeType($request, $type);
+        if ($type === 'customers') {
+            $rows = Customer::query()->latest()->paginate(12);
+
+            return view('operations.index', compact('type', 'rows'));
         }
 
-        $model = ['production' => Production::class, 'distribution' => Distribution::class, 'sales' => Sale::class, 'customers' => Customer::class, 'inventory' => InventoryTransaction::class][$type] ?? abort(404);
-        $rows = $model::query()->latest()->paginate(12);
-
-        return view('operations.index', compact('type', 'rows'));
+        return $this->packagedIndex($type);
     }
 
-    public function create(string $type)
+    public function create(Request $request, string $type): View
     {
-        $this->authorizeType(request(), $type);
-
-        if ($type === 'production') {
-            return redirect()->route('packaged.batches.create');
-        }
-        if ($type === 'distribution' || $type === 'sales') {
-            return redirect()->route('packaged.orders.create');
-        }
+        $this->authorizeType($request, $type);
+        abort_unless($type === 'customers', 404);
 
         return view('operations.form', ['type' => $type, 'customers' => Customer::orderBy('name')->get()]);
     }
 
-    private function packagedIndex(string $type)
+    public function store(Request $request, string $type): RedirectResponse
+    {
+        $this->authorizeType($request, $type);
+        abort_unless($type === 'customers', 404);
+        $data = $request->validate([
+            'name' => 'required|string|max:255',
+            'phone_number' => 'required|string|max:30|unique:customers,phone_number',
+            'email' => 'nullable|email|max:255',
+            'address' => 'nullable|string|max:255',
+            'contact_person' => 'nullable|string|max:255',
+        ]);
+        Customer::create($data);
+
+        return redirect()->route('customers.index')->with('status', 'Customer record saved.');
+    }
+
+    private function packagedIndex(string $type): View
     {
         $rows = match ($type) {
             'production' => ProductionBatch::with('product')->orderByDesc('produced_on')->orderByDesc('id')->paginate(20),
@@ -70,47 +76,6 @@ class OperationsController extends Controller
             : collect();
 
         return view('operations.packaged-index', compact('type', 'rows', 'summary', 'stockByProduct'));
-    }
-
-    public function store(Request $r, string $type, InventoryService $stock)
-    {
-        $this->authorizeType($r, $type);
-        $uid = $r->user()->user_id;
-        if ($type === 'production') {
-            $d = $r->validate(['production_date' => 'required|date', 'quantity' => 'required|numeric|gt:0', 'notes' => 'nullable']);
-            DB::transaction(function () use (&$p, $d, $uid, $stock) {
-                $p = Production::create(['production_date' => $d['production_date'], 'quantity_produced' => $d['quantity'], 'notes' => $d['notes'] ?? null, 'user_id' => $uid]);
-                $stock->add($d['quantity'], $d['production_date'], $uid, 'production', $p->production_id, $d['notes'] ?? null);
-            });
-        } elseif ($type === 'distribution') {
-            $d = $r->validate(['distribution_date' => 'required|date', 'quantity' => 'required|numeric|gt:0', 'destination' => 'required|string|max:255', 'notes' => 'nullable']);
-            DB::transaction(function () use (&$p, $d, $uid, $stock) {
-                $p = Distribution::create(['distribution_date' => $d['distribution_date'], 'quantity_distributed' => $d['quantity'], 'destination' => $d['destination'], 'notes' => $d['notes'] ?? null, 'user_id' => $uid]);
-                $stock->remove($d['quantity'], $d['distribution_date'], $uid, 'distribution', $p->distribution_id, $d['notes'] ?? null);
-            });
-        } elseif ($type === 'sales') {
-            $d = $r->validate(['sale_date' => 'required|date', 'quantity' => 'required|numeric|gt:0', 'unit_price' => 'required|numeric|min:0', 'customer_id' => 'nullable|exists:customers,customer_id', 'customer_name' => 'required_without:customer_id|nullable|string', 'phone_number' => 'required_without:customer_id|nullable|string']);
-            $customer = $d['customer_id'] ? Customer::find($d['customer_id']) : Customer::firstOrCreate(['phone_number' => $d['phone_number']], ['name' => $d['customer_name']]);
-            DB::transaction(function () use (&$p, $d, $uid, $stock, $customer) {
-                $p = Sale::create(['sale_date' => $d['sale_date'], 'quantity_sold' => $d['quantity'], 'unit_price' => $d['unit_price'], 'total_amount' => $d['quantity'] * $d['unit_price'], 'customer_id' => $customer->customer_id, 'user_id' => $uid]);
-                $stock->remove($d['quantity'], $d['sale_date'], $uid, 'sale', $p->sale_id);
-            });
-        } elseif ($type === 'customers') {
-            $d = $r->validate(['name' => 'required|string|max:255', 'phone_number' => 'required|string|max:30|unique:customers,phone_number', 'email' => 'nullable|email|max:255', 'address' => 'nullable|string|max:255', 'contact_person' => 'nullable|string|max:255']);
-            Customer::create($d);
-        } else {
-            abort(404);
-        }
-
-        return redirect()->route($type.'.index')->with('status', ucfirst($type).' record saved.');
-    }
-
-    public function adjust(Request $r, InventoryService $stock)
-    {
-        $d = $r->validate(['quantity' => 'required|numeric|not_in:0', 'transaction_date' => 'required|date', 'notes' => 'required|string']);
-        $stock->adjust($d['quantity'], $d['transaction_date'], $r->user()->user_id, $d['notes']);
-
-        return back()->with('status', 'Inventory adjusted.');
     }
 
     private function authorizeType(Request $request, string $type): void

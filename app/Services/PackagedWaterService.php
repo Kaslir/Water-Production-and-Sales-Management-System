@@ -10,6 +10,7 @@ use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\Product;
 use App\Models\ProductionBatch;
+use App\Models\ProductionForecastDecision;
 use App\Models\SalesOrder;
 use App\Models\SalesOrderItem;
 use App\Models\SalesReturn;
@@ -25,10 +26,18 @@ class PackagedWaterService
     public function createBatch(array $data, int $actorId): ProductionBatch
     {
         return DB::transaction(function () use ($data, $actorId): ProductionBatch {
+            $plan = isset($data['production_forecast_decision_id'])
+                ? ProductionForecastDecision::query()->with('forecast')->lockForUpdate()->findOrFail($data['production_forecast_decision_id'])
+                : null;
+            if ($plan) {
+                $this->require($plan->plan_status === 'planned' && $plan->forecast->product_id === (int) $data['product_id'], 'The selected production plan is not active for this product.');
+                $this->require($plan->planned_for->gte(today()) && $plan->approved_cases - $plan->cases_completed >= (int) $data['cases_produced'], 'This batch exceeds the remaining approved plan or the plan date has passed.');
+            }
             $costFields = ['water_treatment_cost', 'bottle_cost', 'inbound_transport_cost', 'cap_label_cost', 'labour_cost', 'electricity_cost', 'other_production_cost'];
             $totalCost = round(array_sum(array_map(fn (string $field): float => (float) ($data[$field] ?? 0), $costFields)), 2);
             $batch = ProductionBatch::create([
                 'product_id' => $data['product_id'],
+                'production_forecast_decision_id' => $plan?->id,
                 'batch_code' => $data['batch_code'],
                 'produced_on' => $data['produced_on'],
                 'expires_on' => $data['expires_on'],
@@ -47,6 +56,12 @@ class PackagedWaterService
                 'produced_by' => $actorId,
             ]);
             StockMovement::create(['production_batch_id' => $batch->id, 'signed_cases' => $batch->cases_produced, 'reason' => 'production', 'reference_type' => 'ProductionBatch', 'reference_id' => $batch->id, 'performed_by' => $actorId]);
+            if ($plan) {
+                $plan->increment('cases_completed', $batch->cases_produced);
+                if ($plan->fresh()->cases_completed >= $plan->approved_cases) {
+                    $plan->update(['plan_status' => 'completed']);
+                }
+            }
             $this->auditTrail->record('batch.created', $batch, $actorId, [], ['cases' => $batch->cases_produced, 'cost' => $totalCost]);
 
             return $batch;

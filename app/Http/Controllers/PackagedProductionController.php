@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\DispatchLine;
 use App\Models\Product;
 use App\Models\ProductionBatch;
+use App\Models\ProductionForecastDecision;
 use App\Services\AuditTrail;
 use App\Services\PackagedWaterService;
 use Illuminate\Http\RedirectResponse;
@@ -24,7 +25,11 @@ class PackagedProductionController extends Controller
 
     public function create(): View
     {
-        return view('packaged.batch-create', ['products' => Product::query()->where('is_active', true)->orderBy('volume_ml')->get()]);
+        return view('packaged.batch-create', [
+            'products' => Product::query()->where('is_active', true)->orderBy('volume_ml')->get(),
+            'plans' => ProductionForecastDecision::query()->with('forecast.product')->where('plan_status', 'planned')
+                ->whereDate('planned_for', '>=', today())->orderBy('planned_for')->get(),
+        ]);
     }
 
     public function show(ProductionBatch $batch): View
@@ -39,6 +44,7 @@ class PackagedProductionController extends Controller
     {
         $data = $request->validate([
             'product_id' => ['required', Rule::exists('products', 'id')->where('is_active', true)],
+            'production_forecast_decision_id' => ['nullable', 'exists:production_forecast_decisions,id'],
             'batch_code' => ['required', 'string', 'max:80', Rule::unique('production_batches', 'batch_code')],
             'produced_on' => ['required', 'date', 'before_or_equal:today'],
             'expires_on' => ['required', 'date', 'after:produced_on'],

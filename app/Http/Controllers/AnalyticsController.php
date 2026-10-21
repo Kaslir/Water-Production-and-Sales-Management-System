@@ -2,24 +2,26 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\InventoryTransaction;
-use App\Models\Sale;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
-use Symfony\Component\Process\Process;
+use Illuminate\Support\Facades\DB;
+use Illuminate\View\View;
 
 class AnalyticsController extends Controller
 {
-    public function index(Request $request)
+    public function index(Request $request): View
     {
-        // Selecting the analysis period
         $period = $request->query('period', 'all');
         if (! in_array($period, ['week', 'month', '3months', '6months', 'year', 'all'], true)) {
             $period = 'all';
         }
 
-        $latestDates = array_filter([Sale::max('sale_date'), InventoryTransaction::max('transaction_date')]);
-        $latestDate = $latestDates ? CarbonImmutable::parse(max($latestDates)) : null;
+        $latestRecorded = collect([
+            DB::table('sales_orders')->max('ordered_on'),
+            DB::table('invoices')->max('issued_on'),
+            DB::table('dispatches')->max('dispatched_on'),
+        ])->filter()->max();
+        $latestDate = $latestRecorded ? CarbonImmutable::parse($latestRecorded) : null;
         $startDate = $latestDate ? match ($period) {
             'week' => $latestDate->subDays(6),
             'month' => $latestDate->subMonthNoOverflow(),
@@ -29,104 +31,50 @@ class AnalyticsController extends Controller
             default => null,
         } : null;
 
-        // Retrieving and calculating sales
-        $salesQuery = Sale::selectRaw('sale_date, SUM(quantity_sold) quantity, SUM(total_amount) revenue');
+        $demandQuery = DB::table('sales_order_items')
+            ->join('sales_orders', 'sales_order_items.sales_order_id', '=', 'sales_orders.id')
+            ->join('products', 'sales_order_items.product_id', '=', 'products.id')
+            ->where('sales_orders.status', '!=', 'cancelled')
+            ->selectRaw('sales_orders.ordered_on as day, products.id as product_id, products.name as product_name, SUM(sales_order_items.cases_ordered) as cases, SUM(sales_order_items.cases_ordered * products.bottles_per_case * products.volume_ml / 1000.0) as litres')
+            ->groupBy('sales_orders.ordered_on', 'products.id', 'products.name')
+            ->orderBy('sales_orders.ordered_on');
         if ($startDate) {
-            $salesQuery->where('sale_date', '>=', $startDate->toDateString());
+            $demandQuery->whereDate('sales_orders.ordered_on', '>=', $startDate->toDateString());
         }
-        $dailySales = $salesQuery->groupBy('sale_date')->orderBy('sale_date')->get();
-        $recordedSalesDays = $dailySales->count();
-        $totalLitresSold = (float) $dailySales->sum('quantity');
-        $totalSalesValue = (float) $dailySales->sum('revenue');
-        $averageLitresPerRecordedDay = $recordedSalesDays ? $totalLitresSold / $recordedSalesDays : 0;
-        // Preparing data for demand forecasting
-        $values = $dailySales->pluck('quantity')->map(fn ($value) => (float) $value)->values()->all();
-        $forecast = $this->forecast($values);
+        $demandByProduct = $demandQuery->get();
+        $dailyDemand = $demandByProduct->groupBy('day')->map(fn ($rows, $day) => [
+            'day' => $day,
+            'cases' => $rows->sum('cases'),
+            'litres' => $rows->sum('litres'),
+        ])->values();
+        $productDemand = $demandByProduct->groupBy('product_id')->map(fn ($rows) => [
+            'name' => $rows->first()->product_name,
+            'cases' => $rows->sum('cases'),
+            'litres' => $rows->sum('litres'),
+        ])->values();
 
-        // Tracking inventory consumption
-        $movementsQuery = InventoryTransaction::selectRaw("transaction_date, SUM(CASE WHEN transaction_type = 'OUT' THEN quantity ELSE 0 END) consumed");
+        $revenueQuery = DB::table('invoices')->selectRaw('issued_on as day, SUM(amount) as revenue')->groupBy('issued_on')->orderBy('issued_on');
+        $dispatchQuery = DB::table('dispatch_lines')->join('dispatches', 'dispatch_lines.dispatch_id', '=', 'dispatches.id')
+            ->selectRaw('dispatches.dispatched_on as day, SUM(dispatch_lines.cases) as cases')
+            ->groupBy('dispatches.dispatched_on')->orderBy('dispatches.dispatched_on');
         if ($startDate) {
-            $movementsQuery->where('transaction_date', '>=', $startDate->toDateString());
+            $revenueQuery->whereDate('issued_on', '>=', $startDate->toDateString());
+            $dispatchQuery->whereDate('dispatches.dispatched_on', '>=', $startDate->toDateString());
         }
-        $movements = $movementsQuery->groupBy('transaction_date')->orderBy('transaction_date')->get();
+        $dailyRevenue = $revenueQuery->get();
+        $dailyDispatches = $dispatchQuery->get();
 
-        // Generating future demand projections
-        $forecastHistory = $period === 'all' ? $dailySales : Sale::selectRaw('sale_date, SUM(quantity_sold) quantity')
-            ->groupBy('sale_date')->orderBy('sale_date')->get();
-        $outlookForecast = $period === 'all' ? $forecast : $this->forecast(
-            $forecastHistory->pluck('quantity')->map(fn ($value) => (float) $value)->values()->all()
-        );
-        $outlook = $this->futureDemandOutlook($forecastHistory, $outlookForecast);
-
-        // Displaying the analytics dashboard
-        return view('analytics.index', compact('dailySales', 'forecast', 'movements', 'period', 'totalLitresSold', 'totalSalesValue', 'averageLitresPerRecordedDay', 'outlook'));
-    }
-
-    private function futureDemandOutlook($history, array $forecast): array
-    {
-        if (! $forecast['available']) {
-            return ['available' => false];
-        }
-
-        $lastRecordedDate = $history->last()->sale_date;
-        $today = CarbonImmutable::today('Africa/Nairobi');
-        $startDate = $today->addDay();
-        if ($lastRecordedDate->gte($startDate)) {
-            $startDate = CarbonImmutable::parse($lastRecordedDate)->addDay();
-        }
-
-        $dailyRate = max(0, (float) $forecast['forecast_quantity']);
-        $periods = [
-            ['label' => 'Next 1 week', 'end' => $startDate->addWeek()->subDay()],
-            ['label' => 'Next 1 month', 'end' => $startDate->addMonthNoOverflow()->subDay()],
-            ['label' => 'Next 3 months', 'end' => $startDate->addMonthsNoOverflow(3)->subDay()],
-            ['label' => 'Next 6 months', 'end' => $startDate->addMonthsNoOverflow(6)->subDay()],
-            ['label' => 'Next 1 year', 'end' => $startDate->addYearNoOverflow()->subDay()],
-        ];
-        $rows = [];
-        foreach ($periods as $period) {
-            $days = (int) $startDate->diffInDays($period['end']) + 1;
-            $rows[] = [
-                'label' => $period['label'],
-                'start' => $startDate,
-                'end' => $period['end'],
-                'days' => $days,
-                'litres' => $dailyRate * $days,
-            ];
-        }
-
-        return [
-            'available' => true,
-            'method' => $forecast['best_method'],
-            'daily_rate' => $dailyRate,
-            'last_recorded_date' => $lastRecordedDate,
-            'is_stale' => $lastRecordedDate->lt($today->subDays(7)),
-            'rows' => $rows,
-        ];
-    }
-
-    private function forecast(array $values): array
-    {
-        // Checking whether forecasting is possible
-        if (count($values) < 2) {
-            return ['available' => false];
-        }
-
-        // Connecting Laravel to the Python forecasting model
-        try {
-            $process = new Process([env('PYTHON_BINARY', 'python'), base_path('analytics/analyze.py')]);
-            $process->setInput(json_encode(['sales' => $values]));
-            $process->run();
-            $result = json_decode($process->getOutput(), true);
-            if ($process->isSuccessful() && is_array($result)
-                && ($result['best_method'] ?? null) === 'moving_average'
-                && isset($result['forecast_quantity'], $result['moving_average']['mae'])) {
-                return ['available' => true] + $result;
-            }
-        } catch (\Throwable $exception) {
-            return ['available' => false];
-        }
-
-        return ['available' => false];
+        return view('analytics.index', [
+            'period' => $period,
+            'latestDate' => $latestDate,
+            'dailyDemand' => $dailyDemand,
+            'dailyRevenue' => $dailyRevenue,
+            'dailyDispatches' => $dailyDispatches,
+            'productDemand' => $productDemand,
+            'totalCasesOrdered' => $dailyDemand->sum('cases'),
+            'totalLitresOrdered' => $dailyDemand->sum('litres'),
+            'totalInvoiced' => $dailyRevenue->sum('revenue'),
+            'averageCasesPerRecordedDay' => $dailyDemand->count() ? $dailyDemand->sum('cases') / $dailyDemand->count() : 0,
+        ]);
     }
 }
