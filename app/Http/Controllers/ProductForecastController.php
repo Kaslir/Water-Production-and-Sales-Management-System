@@ -22,7 +22,7 @@ class ProductForecastController extends Controller
     {
         $products = Product::query()->orderBy('volume_ml')->get();
         $latestForecasts = ProductForecast::query()
-            ->whereIn('method', ['moving_average', 'random_forest', 'gradient_boosting'])
+            ->whereIn('method', ['random_forest', 'gradient_boosting'])
             ->orderByDesc('origin_date')->get()->groupBy('product_id')->map(function ($rows) {
                 $latestOrigin = $rows->first()->origin_date->toDateString();
 
@@ -66,7 +66,7 @@ class ProductForecastController extends Controller
     public function decision(Request $request, ProductForecast $forecast, AuditTrail $auditTrail, ProductForecastService $service): RedirectResponse
     {
         abort_unless(
-            in_array($forecast->method, ['moving_average', 'random_forest', 'gradient_boosting'], true)
+            in_array($forecast->method, ['random_forest', 'gradient_boosting'], true)
             && (bool) ($forecast->evaluation['selected'] ?? false)
             && ($forecast->evaluation['mode'] ?? null) === 'current'
             && $forecast->origin_date->isToday(),

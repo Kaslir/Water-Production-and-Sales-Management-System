@@ -158,7 +158,7 @@ class PackagedWaterWorkflowTest extends TestCase
             'product_id' => $product->id,
             'origin_date' => today(),
             'horizon_days' => 7,
-            'method' => 'moving_average',
+            'method' => 'random_forest',
             'predicted_cases' => 50,
             'mae_cases' => 2,
             'bias_cases' => 0,

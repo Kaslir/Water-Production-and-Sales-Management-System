@@ -7,7 +7,7 @@ from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
 
 HORIZONS = (7, 30)
 MIN_HISTORY = 90
-METHODS = ("moving_average", "random_forest", "gradient_boosting")
+METHODS = ("random_forest", "gradient_boosting")
 
 
 def features(values, origin):
@@ -22,10 +22,6 @@ def features(values, origin):
         float(np.std(history[-28:])),
         origin % 7,
     ]
-
-
-def baseline(history, horizon):
-    return max(0.0, float(np.mean(history[-7:])) * horizon)
 
 
 def model_for(method):
@@ -63,12 +59,9 @@ def forecast_horizon(values, horizon):
         actuals = [sum(values[origin + 1 : origin + horizon + 1]) for origin in testing_origins]
 
         for method in METHODS:
-            if method in ("random_forest", "gradient_boosting"):
-                estimator = model_for(method)
-                estimator.fit(x_train, y_train)
-                predictions = estimator.predict(x_test)
-            else:
-                predictions = [baseline(values[: origin + 1], horizon) for origin in testing_origins]
+            estimator = model_for(method)
+            estimator.fit(x_train, y_train)
+            predictions = estimator.predict(x_test)
             actual_by_method[method].extend(actuals)
             predicted_by_method[method].extend(max(0.0, float(prediction)) for prediction in predictions)
 
@@ -85,18 +78,14 @@ def forecast_horizon(values, horizon):
         }
 
     best = min(METHODS, key=lambda method: scores[method]["mae_cases"])
-    latest_history = values[:]
     latest_features = np.asarray([features(values, count - 1)])
     for method in METHODS:
-        if method in ("random_forest", "gradient_boosting"):
-            estimator = model_for(method)
-            estimator.fit(
-                np.asarray([features(values, origin) for origin in origins]),
-                np.asarray([sum(values[origin + 1 : origin + horizon + 1]) for origin in origins]),
-            )
-            estimate = estimator.predict(latest_features)[0]
-        else:
-            estimate = baseline(latest_history, horizon)
+        estimator = model_for(method)
+        estimator.fit(
+            np.asarray([features(values, origin) for origin in origins]),
+            np.asarray([sum(values[origin + 1 : origin + horizon + 1]) for origin in origins]),
+        )
+        estimate = estimator.predict(latest_features)[0]
         scores[method]["predicted_cases"] = round(max(0.0, float(estimate)), 2)
 
     return {"available": True, "best_method": best, "methods": scores}

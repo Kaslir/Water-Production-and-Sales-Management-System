@@ -2,7 +2,7 @@
 @section('page-title', 'Production planning')
 @section('content')
 @php($lastOrder = $latestOrderDate ? \Carbon\Carbon::parse($latestOrderDate) : null)
-<div class="alert alert-info">Forecasts compare moving average, random forest, and gradient boosting on recorded packaged-water orders. The demonstration dataset is synthetic, so its model scores do not prove accuracy at a real company. @if($lastOrder)Last recorded order: {{ $lastOrder->format('d M Y') }}.@endif</div>
+<div class="alert alert-info">Forecasts compare Random Forest and Gradient Boosting on recorded packaged-water orders. The demonstration dataset is synthetic, so its model scores do not prove accuracy at a real company. @if($lastOrder)Last recorded order: {{ $lastOrder->format('d M Y') }}.@endif</div>
 @if($lastOrder && $lastOrder->lt(today()->subDays(14)))<div class="alert alert-warning">There are no recent orders for a current forecast. You may evaluate the historical dataset as of {{ $lastOrder->format('d M Y') }}. Those dated estimates are a demonstration, not a prediction for today.</div>@endif
 <div class="row g-3">
 @foreach($products as $product)
