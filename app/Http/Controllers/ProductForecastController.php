@@ -7,6 +7,7 @@ use App\Models\ProductForecast;
 use App\Models\ProductionBatch;
 use App\Models\ProductionForecastDecision;
 use App\Models\SalesOrder;
+use App\Services\AppAlertService;
 use App\Services\AuditTrail;
 use App\Services\ProductForecastService;
 use Illuminate\Http\RedirectResponse;
@@ -45,7 +46,7 @@ class ProductForecastController extends Controller
         return view('packaged.forecasts', compact('products', 'latestForecasts', 'latestOrderDate', 'stock', 'nearExpiry', 'planning'));
     }
 
-    public function run(Request $request, ProductForecastService $service, AuditTrail $auditTrail): RedirectResponse
+    public function run(Request $request, ProductForecastService $service, AuditTrail $auditTrail, AppAlertService $alerts): RedirectResponse
     {
         $data = $request->validate(['product_id' => ['required', 'exists:products,id'], 'mode' => ['required', 'in:current,historical_demo']]);
         $product = Product::findOrFail($data['product_id']);
@@ -59,11 +60,14 @@ class ProductForecastController extends Controller
             throw ValidationException::withMessages(['forecast' => $reason]);
         }
         $auditTrail->record('forecast.generated', $product, $request->user()->user_id, [], ['horizons' => [7, 30]]);
+        if ($data['mode'] === 'current') {
+            $alerts->scanIfDue(true);
+        }
 
         return back()->with('status', ($data['mode'] === 'historical_demo' ? 'Historical demonstration' : 'Current forecast').' and chronological model comparison updated for '.$product->name.'.');
     }
 
-    public function decision(Request $request, ProductForecast $forecast, AuditTrail $auditTrail, ProductForecastService $service): RedirectResponse
+    public function decision(Request $request, ProductForecast $forecast, AuditTrail $auditTrail, ProductForecastService $service, AppAlertService $alerts): RedirectResponse
     {
         abort_unless(
             in_array($forecast->method, ['random_forest', 'gradient_boosting'], true)
@@ -82,12 +86,13 @@ class ProductForecastController extends Controller
         if ($data['recommended_cases'] !== (int) $data['approved_cases']) {
             $request->validate(['reason' => ['required', 'string', 'max:2000']]);
         }
-        DB::transaction(function () use ($data, $forecast, $request, $auditTrail): void {
+        DB::transaction(function () use ($data, $forecast, $request, $auditTrail, $alerts): void {
             ProductionForecastDecision::query()->where('plan_status', 'planned')
                 ->whereHas('forecast', fn ($query) => $query->where('product_id', $forecast->product_id))
                 ->update(['plan_status' => 'superseded']);
             $decision = ProductionForecastDecision::create($data + ['product_forecast_id' => $forecast->id, 'decided_by' => $request->user()->user_id, 'plan_status' => 'planned']);
             $auditTrail->record('forecast.decision_recorded', $decision, $request->user()->user_id, [], ['recommended_cases' => $decision->recommended_cases, 'approved_cases' => $decision->approved_cases, 'planned_for' => $decision->planned_for->toDateString()], $decision->reason);
+            $alerts->publish('plan:approved:'.$decision->id, 'plan', 'warning', 'Production plan approved', $forecast->product->name.' has an approved plan for '.$decision->approved_cases.' cases on '.$decision->planned_for->format('d M Y').'.', 'plan', $decision->id, ['administrator', 'manager', 'production_staff']);
         });
 
         return back()->with('status', 'Production decision recorded. Record the resulting batch after production.');

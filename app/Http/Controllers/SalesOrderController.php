@@ -7,9 +7,11 @@ use App\Models\DispatchLine;
 use App\Models\Invoice;
 use App\Models\Product;
 use App\Models\SalesOrder;
+use App\Services\AppAlertService;
 use App\Services\PackagedWaterService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
 class SalesOrderController extends Controller
@@ -53,9 +55,18 @@ class SalesOrderController extends Controller
         return view('packaged.order-show', compact('order'));
     }
 
-    public function confirm(Request $request, SalesOrder $order, PackagedWaterService $service): RedirectResponse
+    public function confirm(Request $request, SalesOrder $order, PackagedWaterService $service, AppAlertService $alerts): RedirectResponse
     {
-        $service->confirmOrder($order, $request->user()->user_id);
+        try {
+            $service->confirmOrder($order, $request->user()->user_id);
+        } catch (ValidationException $exception) {
+            $errors = implode(' ', array_merge([], ...array_values($exception->errors())));
+            if (str_contains($errors, 'Insufficient released, unexpired stock')) {
+                $alerts->publish('order:stock:'.$order->id, 'order_shortage', 'high', 'Order cannot be reserved', $order->order_number.' needs more released, unexpired stock before confirmation.', 'order', $order->id, ['administrator', 'manager', 'sales_staff']);
+            }
+            throw $exception;
+        }
+        $alerts->resolve('order:stock:'.$order->id);
 
         return back()->with('status', 'Eligible batches reserved in expiry order.');
     }

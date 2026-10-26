@@ -37,6 +37,11 @@ class User extends Authenticatable
         return in_array($this->role, $roles, true);
     }
 
+    public function appAlerts(): HasMany
+    {
+        return $this->hasMany(AppAlert::class, 'user_id', 'user_id');
+    }
+
     public function securityCodes(): HasMany
     {
         return $this->hasMany(SecurityCode::class, 'user_id');

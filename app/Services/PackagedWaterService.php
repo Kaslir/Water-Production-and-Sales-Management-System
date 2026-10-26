@@ -21,7 +21,7 @@ use Illuminate\Validation\ValidationException;
 
 class PackagedWaterService
 {
-    public function __construct(private AuditTrail $auditTrail) {}
+    public function __construct(private AuditTrail $auditTrail, private AppAlertService $alerts) {}
 
     public function createBatch(array $data, int $actorId): ProductionBatch
     {
@@ -63,6 +63,10 @@ class PackagedWaterService
                 }
             }
             $this->auditTrail->record('batch.created', $batch, $actorId, [], ['cases' => $batch->cases_produced, 'cost' => $totalCost]);
+            $this->alerts->publish('batch:quality:'.$batch->id, 'quality', 'warning', 'Batch needs quality review', $batch->batch_code.' is on quality hold and cannot be sold yet.', 'batch', $batch->id, ['administrator', 'manager', 'inventory_staff']);
+            if ($plan && $plan->fresh()->plan_status === 'completed') {
+                $this->alerts->resolve('plan:approved:'.$plan->id);
+            }
 
             return $batch;
         });
@@ -81,6 +85,7 @@ class PackagedWaterService
                 StockMovement::create(['production_batch_id' => $batch->id, 'signed_cases' => -$rejectedCases, 'reason' => 'quality_rejection', 'reference_type' => 'ProductionBatch', 'reference_id' => $batch->id, 'performed_by' => $actorId, 'notes' => $notes]);
             }
             $this->auditTrail->record('batch.released', $batch, $actorId, ['status' => 'quality_hold'], ['status' => 'released', 'rejected_cases' => $rejectedCases, 'saleable_cost_per_case' => $batch->cost_per_case], $notes);
+            $this->alerts->resolve('batch:quality:'.$batch->id);
         });
     }
 
@@ -93,6 +98,8 @@ class PackagedWaterService
             $previous = $batch->status;
             $batch->update(['status' => 'quarantined', 'quality_notes' => $reason]);
             $this->auditTrail->record('batch.quarantined', $batch, $actorId, ['status' => $previous], ['status' => 'quarantined'], $reason);
+            $this->alerts->resolve('batch:quality:'.$batch->id);
+            $this->alerts->publish('batch:quarantined:'.$batch->id, 'quality', 'high', 'Batch quarantined', $batch->batch_code.' was quarantined. Review the batch before any further action.', 'batch', $batch->id, ['administrator', 'manager', 'inventory_staff']);
         });
     }
 
@@ -115,10 +122,14 @@ class PackagedWaterService
                 }
                 $order->update(['status' => 'draft']);
                 $this->auditTrail->record('order.reservation_released_for_recall', $order, $actorId, [], ['recalled_batch' => $batch->batch_code], $reason);
+                $this->alerts->resolve('order:dispatch:'.$order->id);
+                $this->alerts->publish('order:reallocation:'.$order->id, 'order', 'high', 'Order needs new stock', $order->order_number.' returned to draft because a reserved batch was recalled.', 'order', $order->id, ['administrator', 'manager', 'sales_staff', 'distribution_staff']);
             }
             $oldStatus = $batch->status;
             $batch->update(['status' => 'recalled', 'quality_notes' => $reason]);
             $this->auditTrail->record('batch.recalled', $batch, $actorId, ['status' => $oldStatus], ['status' => 'recalled', 'affected_open_orders' => $orderIds->count()], $reason);
+            $this->alerts->resolve('batch:quality:'.$batch->id);
+            $this->alerts->publish('batch:recalled:'.$batch->id, 'quality', 'high', 'Urgent batch recall', $batch->batch_code.' was recalled. Check affected stock and customers.', 'batch', $batch->id, ['administrator', 'manager', 'inventory_staff'], ['administrator', 'manager']);
         });
     }
 
@@ -192,6 +203,8 @@ class PackagedWaterService
             }
             $order->update(['status' => 'confirmed']);
             $this->auditTrail->record('order.confirmed', $order, $actorId, ['status' => 'draft'], ['status' => 'confirmed']);
+            $this->alerts->resolve('order:reallocation:'.$order->id);
+            $this->alerts->publish('order:dispatch:'.$order->id, 'order', 'warning', 'Order ready for dispatch', $order->order_number.' has reserved stock and is ready to dispatch.', 'order', $order->id, ['administrator', 'manager', 'distribution_staff']);
         });
     }
 
@@ -232,6 +245,8 @@ class PackagedWaterService
             }
             $order->update(['status' => 'dispatched']);
             $this->auditTrail->record('order.dispatched', $order, $actorId, ['status' => 'confirmed'], ['status' => 'dispatched', 'dispatch_id' => $dispatch->id]);
+            $this->alerts->resolve('order:dispatch:'.$order->id);
+            $this->alerts->publish('order:delivery:'.$order->id, 'order', 'warning', 'Delivery needs confirmation', $order->order_number.' was dispatched and is awaiting delivery confirmation.', 'order', $order->id, ['administrator', 'manager', 'distribution_staff']);
 
             return $dispatch;
         });
@@ -245,6 +260,8 @@ class PackagedWaterService
             $order->dispatch->update(['status' => 'delivered', 'delivered_on' => today()]);
             $order->update(['status' => 'delivered']);
             $this->auditTrail->record('order.delivered', $order, $actorId, ['status' => 'dispatched'], ['status' => 'delivered']);
+            $this->alerts->resolve('order:delivery:'.$order->id);
+            $this->alerts->publish('order:invoice:'.$order->id, 'order', 'warning', 'Delivered order needs invoice', $order->order_number.' has been delivered and can now be invoiced.', 'order', $order->id, ['administrator', 'manager', 'sales_staff']);
         });
     }
 
@@ -256,6 +273,7 @@ class PackagedWaterService
             $invoice = Invoice::create(['sales_order_id' => $order->id, 'invoice_number' => 'INV-'.Str::upper(Str::random(12)), 'issued_on' => today(), 'amount' => $order->total_amount, 'status' => 'unpaid']);
             $order->update(['status' => 'invoiced']);
             $this->auditTrail->record('invoice.issued', $invoice, $actorId, [], ['amount' => $invoice->amount]);
+            $this->alerts->resolve('order:invoice:'.$order->id);
 
             return $invoice;
         });

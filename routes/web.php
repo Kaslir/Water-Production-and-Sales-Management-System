@@ -4,6 +4,7 @@ use App\Http\Controllers\AnalyticsController;
 use App\Http\Controllers\AuditLogController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\OperationsController;
 use App\Http\Controllers\PackagedProductionController;
 use App\Http\Controllers\PackagedReportController;
@@ -13,6 +14,7 @@ use App\Http\Controllers\ReportController;
 use App\Http\Controllers\SalesOrderController;
 use App\Http\Controllers\TechnicalEventController;
 use App\Http\Controllers\UserManagementController;
+use App\Http\Middleware\DailyAlertScan;
 use Illuminate\Support\Facades\Route;
 
 Route::redirect('/', '/dashboard');
@@ -30,9 +32,13 @@ Route::get('/security-code', [AuthController::class, 'securityForm'])->name('sec
 Route::post('/security-code', [AuthController::class, 'verify'])->name('security.verify');
 Route::post('/security-code/resend', [AuthController::class, 'resend'])->name('security.resend');
 
-Route::middleware(['auth', 'active'])->group(function () {
+Route::middleware(['auth', 'active', DailyAlertScan::class])->group(function () {
     Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
     Route::get('/dashboard', DashboardController::class)->name('dashboard');
+    Route::get('/notifications', [NotificationController::class, 'index'])->name('notifications.index');
+    Route::post('/notifications/read-all', [NotificationController::class, 'readAll'])->name('notifications.read-all');
+    Route::post('/notifications/{alert}/read', [NotificationController::class, 'read'])->name('notifications.read');
+    Route::post('/notifications/{alert}/open', [NotificationController::class, 'open'])->name('notifications.open');
 
     Route::middleware('role:administrator,manager,production_staff,inventory_staff')->group(function () {
         Route::get('/packaged/batches', [PackagedProductionController::class, 'index'])->name('packaged.batches.index');
