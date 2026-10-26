@@ -43,6 +43,8 @@
             <a class="side-link {{ request()->routeIs('reports.*') ? 'active' : '' }}" href="{{ route('reports.index') }}"><i class="bi bi-file-earmark-bar-graph"></i>Reports</a>
         </nav>
     @endif
+    <div class="nav-heading">ACCOUNT</div>
+    <nav><a class="side-link {{ request()->routeIs('profile.*') ? 'active' : '' }}" href="{{ route('profile.show') }}"><i class="bi bi-person-circle"></i>My profile</a></nav>
     <div class="sidebar-bottom"><div class="profile"><div class="avatar">{{ str(auth()->user()->name)->substr(0, 2)->upper() }}</div><div><strong>{{ auth()->user()->name }}</strong><br><span class="text-white-50">{{ str_replace('_', ' ', auth()->user()->role) }}</span></div></div><form method="post" action="{{ route('logout') }}">@csrf<button class="side-link border-0 bg-transparent w-100 text-start"><i class="bi bi-box-arrow-left"></i>Log out</button></form></div>
 </aside>
 <section class="page"><header class="topbar"><div><div class="breadcrumb-label">WATER MANAGEMENT</div><div class="page-title">@yield('page-title', 'Overview')</div></div><div class="top-user d-flex align-items-center gap-3">

@@ -10,6 +10,7 @@ use App\Http\Controllers\PackagedProductionController;
 use App\Http\Controllers\PackagedReportController;
 use App\Http\Controllers\PasswordRecoveryController;
 use App\Http\Controllers\ProductForecastController;
+use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\SalesOrderController;
 use App\Http\Controllers\TechnicalEventController;
@@ -35,6 +36,12 @@ Route::post('/security-code/resend', [AuthController::class, 'resend'])->name('s
 Route::middleware(['auth', 'active', DailyAlertScan::class])->group(function () {
     Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
     Route::get('/dashboard', DashboardController::class)->name('dashboard');
+    Route::get('/profile', [ProfileController::class, 'show'])->name('profile.show');
+    Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
+    Route::post('/profile/email', [ProfileController::class, 'requestEmailChange'])->name('profile.email.request');
+    Route::post('/profile/email/verify', [ProfileController::class, 'verifyEmailChange'])->name('profile.email.verify');
+    Route::delete('/profile/email', [ProfileController::class, 'cancelEmailChange'])->name('profile.email.cancel');
+    Route::put('/profile/password', [ProfileController::class, 'updatePassword'])->name('profile.password');
     Route::get('/notifications', [NotificationController::class, 'index'])->name('notifications.index');
     Route::post('/notifications/read-all', [NotificationController::class, 'readAll'])->name('notifications.read-all');
     Route::post('/notifications/{alert}/read', [NotificationController::class, 'read'])->name('notifications.read');
