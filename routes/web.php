@@ -23,11 +23,12 @@ Route::redirect('/', '/dashboard');
 Route::middleware('guest')->group(function () {
     Route::get('/login', [AuthController::class, 'loginForm'])->name('login');
     Route::post('/login', [AuthController::class, 'login'])->name('login.submit');
-    Route::get('/forgot-password', [PasswordRecoveryController::class, 'requestForm'])->name('password.request');
-    Route::post('/forgot-password', [PasswordRecoveryController::class, 'sendCode'])->name('password.email_code');
-    Route::get('/reset-password', [PasswordRecoveryController::class, 'resetForm'])->name('password.reset_form');
-    Route::post('/reset-password', [PasswordRecoveryController::class, 'reset'])->name('password.reset_code');
 });
+
+Route::get('/forgot-password', [PasswordRecoveryController::class, 'requestForm'])->name('password.request');
+Route::post('/forgot-password', [PasswordRecoveryController::class, 'sendCode'])->name('password.email_code');
+Route::get('/reset-password', [PasswordRecoveryController::class, 'resetForm'])->name('password.reset_form');
+Route::post('/reset-password', [PasswordRecoveryController::class, 'reset'])->name('password.reset_code');
 
 Route::get('/security-code', [AuthController::class, 'securityForm'])->name('security.form');
 Route::post('/security-code', [AuthController::class, 'verify'])->name('security.verify');
@@ -37,10 +38,12 @@ Route::middleware(['auth', 'active', DailyAlertScan::class])->group(function () 
     Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
     Route::get('/dashboard', DashboardController::class)->name('dashboard');
     Route::get('/profile', [ProfileController::class, 'show'])->name('profile.show');
-    Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
-    Route::post('/profile/email', [ProfileController::class, 'requestEmailChange'])->name('profile.email.request');
-    Route::post('/profile/email/verify', [ProfileController::class, 'verifyEmailChange'])->name('profile.email.verify');
-    Route::delete('/profile/email', [ProfileController::class, 'cancelEmailChange'])->name('profile.email.cancel');
+    Route::middleware('role:administrator')->group(function () {
+        Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
+        Route::post('/profile/email', [ProfileController::class, 'requestEmailChange'])->name('profile.email.request');
+        Route::post('/profile/email/verify', [ProfileController::class, 'verifyEmailChange'])->name('profile.email.verify');
+        Route::delete('/profile/email', [ProfileController::class, 'cancelEmailChange'])->name('profile.email.cancel');
+    });
     Route::put('/profile/password', [ProfileController::class, 'updatePassword'])->name('profile.password');
     Route::get('/notifications', [NotificationController::class, 'index'])->name('notifications.index');
     Route::post('/notifications/read-all', [NotificationController::class, 'readAll'])->name('notifications.read-all');

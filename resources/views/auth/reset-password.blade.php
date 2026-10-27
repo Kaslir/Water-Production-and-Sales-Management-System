@@ -16,7 +16,7 @@
     @if($errors->any())<div class="alert alert-danger">{{ $errors->first() }}</div>@endif
     <form method="post" action="{{ route('password.reset_code') }}">@csrf
         <label class="form-label" for="email">Email</label>
-        <input class="form-control mb-3" id="email" name="email" type="email" value="{{ old('email') }}" required>
+        <input class="form-control mb-3" id="email" name="email" type="email" value="{{ old('email', auth()->user()?->email) }}" required>
         <label class="form-label" for="code">Reset code</label>
         <input class="form-control mb-3" id="code" name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required>
         <label class="form-label" for="password">New password (at least 12 characters)</label>

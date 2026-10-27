@@ -15,10 +15,14 @@
     @if($errors->any())<div class="alert alert-danger">{{ $errors->first() }}</div>@endif
     <form method="post" action="{{ route('password.email_code') }}">@csrf
         <label class="form-label" for="email">Email</label>
-        <input class="form-control mb-3" id="email" name="email" type="email" value="{{ old('email') }}" required autofocus>
+        <input class="form-control mb-3" id="email" name="email" type="email" value="{{ old('email', auth()->user()?->email) }}" required autofocus>
         <button class="btn btn-brand w-100">Send reset code</button>
     </form>
-    <a class="d-block mt-3" href="{{ route('login') }}">Back to login</a>
+    @auth
+        <a class="d-block mt-3" href="{{ route('profile.show') }}">Back to my profile</a>
+    @else
+        <a class="d-block mt-3" href="{{ route('login') }}">Back to login</a>
+    @endauth
 </main>
 </body>
 </html>

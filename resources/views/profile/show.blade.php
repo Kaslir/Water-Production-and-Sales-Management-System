@@ -5,20 +5,29 @@
     <div class="col-12 col-xl-6">
         <div class="panel h-100">
             <h2 class="h6 fw-bold mb-3">Account details</h2>
+            @if ($user->hasRole('administrator'))
             <form method="post" action="{{ route('profile.update') }}">
                 @csrf @method('patch')
                 <label class="form-label" for="profile-name">Full name</label>
                 <input class="form-control mb-3" id="profile-name" name="name" value="{{ old('name', $user->name) }}" required maxlength="255">
+                <button class="btn btn-brand mb-3" type="submit">Save name</button>
+            </form>
+            @else
+                <label class="form-label">Full name</label>
+                <p class="mb-3">{{ $user->name }}</p>
+            @endif
                 <label class="form-label">Current email</label>
                 <p class="mb-3">{{ $user->email }}</p>
                 <label class="form-label">Role</label>
                 <p class="mb-3 text-capitalize">{{ str_replace('_', ' ', $user->role) }}</p>
                 <label class="form-label">Account status</label>
                 <p class="mb-3">{{ $user->is_active ? 'Active' : 'Inactive' }}</p>
-                <button class="btn btn-brand" type="submit">Save name</button>
-            </form>
+            @unless ($user->hasRole('administrator'))
+                <p class="small text-muted mb-0">Contact an administrator if you need to change your name, email address, or role.</p>
+            @endunless
         </div>
     </div>
+    @if ($user->hasRole('administrator'))
     <div class="col-12 col-xl-6">
         <div class="panel h-100">
             <h2 class="h6 fw-bold mb-2">Change email address</h2>
@@ -47,20 +56,13 @@
             @endif
         </div>
     </div>
+    @endif
     <div class="col-12 col-xl-6">
         <div class="panel">
-            <h2 class="h6 fw-bold mb-3">Change password</h2>
-            <form method="post" action="{{ route('profile.password') }}">
-                @csrf @method('put')
-                <label class="form-label" for="password-current">Current password</label>
-                <input class="form-control mb-3" id="password-current" type="password" name="current_password" autocomplete="current-password" required>
-                <label class="form-label" for="password-new">New password</label>
-                <input class="form-control mb-3" id="password-new" type="password" name="password" minlength="12" autocomplete="new-password" required>
-                <label class="form-label" for="password-confirm">Confirm new password</label>
-                <input class="form-control mb-3" id="password-confirm" type="password" name="password_confirmation" minlength="12" autocomplete="new-password" required>
-                <p class="small text-muted">Use at least 12 characters.</p>
-                <button class="btn btn-brand" type="submit">Update password</button>
-            </form>
+            <h2 class="h6 fw-bold mb-2">Password</h2>
+            <p class="small text-muted">Use the email reset code to choose a new password.</p>
+            <a class="btn btn-brand" href="{{ route('password.request') }}">Reset password</a>
+            <p class="small text-muted mt-3 mb-0">If you need help changing your password, contact an administrator.</p>
         </div>
     </div>
 </div>
