@@ -17,26 +17,38 @@ class ProductForecastService
     {
         $productId = $forecast->product_id;
         $horizon = $forecast->horizon_days;
+        $today = CarbonImmutable::today('Africa/Nairobi');
+        $windowStart = CarbonImmutable::parse($forecast->origin_date)->addDay();
+        $windowEnd = CarbonImmutable::parse($forecast->origin_date)->addDays($horizon);
         $eligibleStock = (int) DB::table('production_batches')
             ->where('product_id', $productId)
             ->where('status', 'released')
-            ->whereDate('expires_on', '>', CarbonImmutable::today('Africa/Nairobi')->addDays($horizon)->toDateString())
+            ->whereDate('expires_on', '>', $windowEnd->toDateString())
             ->sum('cases_on_hand');
         $confirmedCases = (int) DB::table('sales_order_items')
             ->join('sales_orders', 'sales_order_items.sales_order_id', '=', 'sales_orders.id')
             ->where('sales_order_items.product_id', $productId)
             ->where('sales_orders.status', 'confirmed')
             ->sum('sales_order_items.cases_ordered');
-        $demandToCover = max((float) $forecast->predicted_cases, $confirmedCases);
+        $recordedCases = (int) DB::table('sales_order_items')
+            ->join('sales_orders', 'sales_order_items.sales_order_id', '=', 'sales_orders.id')
+            ->where('sales_order_items.product_id', $productId)
+            ->where('sales_orders.status', '!=', 'cancelled')
+            ->whereDate('sales_orders.ordered_on', '>=', $windowStart->toDateString())
+            ->whereDate('sales_orders.ordered_on', '<=', min($today->toDateString(), $windowEnd->toDateString()))
+            ->sum('sales_order_items.cases_ordered');
+        $remainingForecast = max(0, (float) $forecast->predicted_cases - $recordedCases);
+        $bufferCases = (int) ceil(max(0, (float) $forecast->mae_cases));
+        $demandToCover = max($remainingForecast + $bufferCases, $confirmedCases);
         $activePlan = ProductionForecastDecision::query()
             ->whereHas('forecast', fn ($query) => $query->where('product_id', $productId))
             ->where('plan_status', 'planned')
-            ->whereDate('planned_for', '>=', CarbonImmutable::today('Africa/Nairobi')->toDateString())
-            ->whereDate('planned_for', '<=', CarbonImmutable::today('Africa/Nairobi')->addDays($horizon)->toDateString())
+            ->whereDate('planned_for', '>=', $today->toDateString())
+            ->whereDate('planned_for', '<=', $windowEnd->toDateString())
             ->latest('id')->first();
         $plannedCases = $activePlan ? max(0, $activePlan->approved_cases - $activePlan->cases_completed) : 0;
 
-        return ['eligible_stock' => $eligibleStock, 'confirmed_cases' => $confirmedCases, 'planned_cases' => $plannedCases, 'recommended_cases' => max(0, (int) ceil($demandToCover - $eligibleStock - $plannedCases))];
+        return ['eligible_stock' => $eligibleStock, 'confirmed_cases' => $confirmedCases, 'recorded_cases' => $recordedCases, 'remaining_forecast_cases' => $remainingForecast, 'buffer_cases' => $bufferCases, 'planned_cases' => $plannedCases, 'recommended_cases' => max(0, (int) ceil($demandToCover - $eligibleStock - $plannedCases))];
     }
 
     public function run(Product $product, bool $historical = false): array
@@ -59,14 +71,19 @@ class ProductForecastService
         $byDate = $rows->pluck('cases', 'order_day');
         $date = CarbonImmutable::parse($rows->first()->order_day);
         $today = CarbonImmutable::today('Africa/Nairobi');
-        $originDate = $historical ? $lastOrderDate : $today;
+        $asOfDate = $historical ? $lastOrderDate : $today;
+        $daysSinceSunday = $asOfDate->dayOfWeek === 0 && ! $historical ? 7 : $asOfDate->dayOfWeek;
+        $originDate = $asOfDate->subDays($daysSinceSunday);
+        if ($originDate->lt($date)) {
+            return ['available' => false, 'reason' => 'A complete Sunday history is needed for weekly evaluation.'];
+        }
         $dailyCases = [];
         while ($date->lte($originDate)) {
             $dailyCases[] = (float) ($byDate[$date->toDateString()] ?? 0);
             $date = $date->addDay();
         }
         $process = new Process([config('services.analytics.python'), base_path('analytics/product_forecast.py')]);
-        $process->setInput(json_encode(['daily_cases' => $dailyCases], JSON_THROW_ON_ERROR));
+        $process->setInput(json_encode(['daily_cases' => $dailyCases, 'start_date' => CarbonImmutable::parse($rows->first()->order_day)->toDateString()], JSON_THROW_ON_ERROR));
         $process->setTimeout(120);
         $process->run();
         if (! $process->isSuccessful()) {
@@ -81,7 +98,7 @@ class ProductForecastService
             foreach ($report['methods'] as $method => $values) {
                 ProductForecast::updateOrCreate(
                     ['product_id' => $product->id, 'origin_date' => $originDate->toDateString(), 'horizon_days' => (int) $horizon, 'method' => $method],
-                    ['predicted_cases' => $values['predicted_cases'], 'mae_cases' => $values['mae_cases'], 'bias_cases' => $values['bias_cases'], 'evaluation' => ['backtest_points' => $values['backtest_points'], 'selected' => $method === $report['best_method'], 'mode' => $historical ? 'historical_demo' : 'current', 'source' => 'recorded packaged-water orders']]
+                    ['predicted_cases' => $values['predicted_cases'], 'mae_cases' => $values['mae_cases'], 'bias_cases' => $values['bias_cases'], 'evaluation' => ['backtest_points' => $values['backtest_points'], 'selected' => $method === $report['best_method'], 'mode' => $historical ? 'historical_demo' : 'current', 'source' => 'recorded packaged-water orders', 'correction_cases' => $values['correction_cases'] ?? 0, 'week_start' => $report['week_start'] ?? null, 'week_end' => $report['week_end'] ?? null]]
                 );
             }
         }

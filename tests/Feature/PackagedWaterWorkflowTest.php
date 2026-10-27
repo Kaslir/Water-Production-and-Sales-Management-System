@@ -7,6 +7,8 @@ use App\Models\Product;
 use App\Models\ProductForecast;
 use App\Models\ProductionBatch;
 use App\Models\ProductionForecastDecision;
+use App\Models\SalesOrder;
+use App\Models\SalesOrderItem;
 use App\Models\StockMovement;
 use App\Models\User;
 use App\Services\PackagedWaterService;
@@ -156,7 +158,7 @@ class PackagedWaterWorkflowTest extends TestCase
         $product = Product::where('sku', 'WATER-500ML')->firstOrFail();
         $forecast = ProductForecast::create([
             'product_id' => $product->id,
-            'origin_date' => today(),
+            'origin_date' => today()->startOfWeek()->subDay(),
             'horizon_days' => 7,
             'method' => 'random_forest',
             'predicted_cases' => 50,
@@ -165,15 +167,16 @@ class PackagedWaterWorkflowTest extends TestCase
             'evaluation' => ['selected' => true, 'mode' => 'current'],
         ]);
         $forecastService = app(ProductForecastService::class);
-        $this->assertSame(50, $forecastService->recommendation($forecast)['recommended_cases']);
+        $this->assertSame(2, $forecastService->recommendation($forecast)['buffer_cases']);
+        $this->assertSame(52, $forecastService->recommendation($forecast)['recommended_cases']);
         $this->actingAs($actor)->post(route('packaged.forecasts.decision', $forecast), [
             'approved_cases' => 40,
-            'planned_for' => today()->addDays(3)->toDateString(),
+            'planned_for' => today()->toDateString(),
             'reason' => 'Limited bottle supply',
         ])->assertRedirect();
         $plan = ProductionForecastDecision::firstOrFail();
         $this->assertSame(40, $forecastService->recommendation($forecast)['planned_cases']);
-        $this->assertSame(10, $forecastService->recommendation($forecast)['recommended_cases']);
+        $this->assertSame(12, $forecastService->recommendation($forecast)['recommended_cases']);
 
         $service = app(PackagedWaterService::class);
         foreach ([15, 25] as $index => $cases) {
@@ -190,7 +193,7 @@ class PackagedWaterWorkflowTest extends TestCase
         $this->assertSame('completed', $plan->fresh()->plan_status);
         $this->assertSame(40, $plan->fresh()->cases_completed);
         $this->assertSame(0, $forecastService->recommendation($forecast)['planned_cases']);
-        $this->assertSame(10, $forecastService->recommendation($forecast)['recommended_cases']);
+        $this->assertSame(12, $forecastService->recommendation($forecast)['recommended_cases']);
     }
 
     public function test_historical_forecast_cannot_be_approved_as_a_current_plan(): void
@@ -215,5 +218,82 @@ class PackagedWaterWorkflowTest extends TestCase
             'planned_for' => today()->addDay()->toDateString(),
         ])->assertStatus(422);
         $this->assertDatabaseCount('production_forecast_decisions', 0);
+    }
+
+    public function test_completed_current_forecast_is_compared_with_later_orders(): void
+    {
+        $actor = $this->actor();
+        $product = Product::where('sku', 'WATER-500ML')->firstOrFail();
+        $origin = today()->startOfWeek()->subDays(8);
+        ProductForecast::create([
+            'product_id' => $product->id,
+            'origin_date' => $origin,
+            'horizon_days' => 7,
+            'method' => 'random_forest',
+            'predicted_cases' => 50,
+            'mae_cases' => 4,
+            'bias_cases' => -1,
+            'evaluation' => ['selected' => true, 'mode' => 'current', 'week_start' => $origin->copy()->addDay()->toDateString()],
+        ]);
+        $customer = Customer::create(['name' => 'Follow-up customer', 'phone_number' => '0700000001']);
+        $order = SalesOrder::create([
+            'order_number' => 'FOLLOW-UP-1',
+            'customer_id' => $customer->customer_id,
+            'ordered_on' => $origin->copy()->addDays(3),
+            'status' => 'dispatched',
+            'delivery_address' => 'Nairobi',
+            'total_amount' => 1000,
+            'created_by' => $actor->user_id,
+        ]);
+        SalesOrderItem::create([
+            'sales_order_id' => $order->id,
+            'product_id' => $product->id,
+            'cases_ordered' => 10,
+            'price_per_case' => 100,
+            'line_total' => 1000,
+        ]);
+
+        $this->actingAs($actor)->get(route('packaged.forecasts.index'))->assertOk()
+            ->assertSee('Completed current forecasts')
+            ->assertDontSee('No completed current forecast is available yet.')
+            ->assertSee($origin->copy()->addDay()->format('d M Y'))
+            ->assertSee('40.0');
+    }
+
+    public function test_undispatched_order_from_before_this_week_still_affects_plan(): void
+    {
+        $actor = $this->actor();
+        $product = Product::where('sku', 'WATER-1L')->firstOrFail();
+        $customer = Customer::create(['name' => 'Backlog customer', 'phone_number' => '0700000002']);
+        $order = SalesOrder::create([
+            'order_number' => 'BACKLOG-1',
+            'customer_id' => $customer->customer_id,
+            'ordered_on' => today()->startOfWeek()->subDays(3),
+            'status' => 'confirmed',
+            'delivery_address' => 'Nairobi',
+            'total_amount' => 8000,
+            'created_by' => $actor->user_id,
+        ]);
+        SalesOrderItem::create([
+            'sales_order_id' => $order->id,
+            'product_id' => $product->id,
+            'cases_ordered' => 80,
+            'price_per_case' => 100,
+            'line_total' => 8000,
+        ]);
+        $forecast = ProductForecast::create([
+            'product_id' => $product->id,
+            'origin_date' => today()->startOfWeek()->subDay(),
+            'horizon_days' => 7,
+            'method' => 'random_forest',
+            'predicted_cases' => 50,
+            'mae_cases' => 0,
+            'bias_cases' => 0,
+            'evaluation' => ['selected' => true, 'mode' => 'current'],
+        ]);
+
+        $recommendation = app(ProductForecastService::class)->recommendation($forecast);
+        $this->assertSame(80, $recommendation['confirmed_cases']);
+        $this->assertSame(80, $recommendation['recommended_cases']);
     }
 }

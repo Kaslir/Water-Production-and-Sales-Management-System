@@ -1,5 +1,5 @@
 {
-  "dataset_name": "AquaTrack packaged-water synthetic dataset",
+  "dataset_name": "AquaTrack packaged-water synthetic dataset, stock-aware scenario",
   "dataset_type": "Entirely synthetic",
   "period_start": "2024-01-01",
   "period_end": "2026-09-30",
@@ -7,18 +7,19 @@
   "days": 1004,
   "random_seed": 20261020,
   "units": "Cases ordered per product per calendar day; one case uses products.bottles_per_case",
-  "generation_method": "Seeded simulation of dated customer orders, weekly and contingency production, quality rejection, FEFO dispatch, invoices, payments, and expiry disposal.",
+  "generation_method": "Original synthetic orders and demand retained unchanged. Production and FEFO dispatch were regenerated using prior 28-day demand, a 1.5-day reserve, same-day contingency production, quality release, and expiry disposal.",
   "forecast_target": "daily_product_demand.cases_ordered, including zero-order dates",
   "suggested_split": {
     "training": "2024-01-01 to 2025-09-30",
     "validation": "2025-10-01 to 2026-03-31",
-    "untouched_test": "2026-04-01 to 2026-09-30"
+    "later_period_previously_examined": "2026-04-01 to 2026-09-30"
   },
   "source_limitations": [
     "No records were observed at a real water company; all customers and transactions are fictional.",
     "Forecasting accuracy on these files only measures performance on this synthetic generator.",
     "The generated order pattern contains programmed seasonality, trend, random variation, and occasional exceptional demand.",
-    "Historical aggregate-litre CSVs are separate and must not be combined with this product-level history."
+    "Historical aggregate-litre CSVs are separate and must not be combined with this product-level history.",
+    "Stock-aware production is simulated; same-day contingency and quality release are simplifying assumptions."
   ],
   "record_counts": {
     "products": 4,
@@ -26,12 +27,18 @@
     "daily_product_demand": 4016,
     "sales_orders": 3034,
     "sales_order_items": 11983,
-    "production_batches": 577,
+    "production_batches": 576,
     "dispatches": 3028,
-    "dispatch_lines": 12261,
+    "dispatch_lines": 12425,
     "invoices": 3028,
     "payments": 3017,
-    "stock_movements": 12974,
-    "batch_disposals": 136
+    "stock_movements": 13002,
+    "batch_disposals": 1
+  },
+  "stock_scenario": {
+    "monday_plan": "Prior 28-day mean demand times 7 plus 1.5-day reserve, less eligible stock",
+    "contingency": "Same-day synthetic production covers an order when planned stock is insufficient",
+    "demonstration_event": "2500 cases of 20 L overproduction on 2024-02-01",
+    "source_daily_demand_sha256": "7812a322448c360c10ddaa8df74394388242fc9e85fbd5df58b4251b333155b5"
   }
 }

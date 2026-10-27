@@ -10,6 +10,7 @@ use App\Models\SalesOrder;
 use App\Services\AppAlertService;
 use App\Services\AuditTrail;
 use App\Services\ProductForecastService;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -23,7 +24,7 @@ class ProductForecastController extends Controller
     {
         $products = Product::query()->orderBy('volume_ml')->get();
         $latestForecasts = ProductForecast::query()
-            ->whereIn('method', ['random_forest', 'gradient_boosting'])
+            ->whereIn('method', ['previous_week', 'random_forest', 'gradient_boosting'])
             ->orderByDesc('origin_date')->get()->groupBy('product_id')->map(function ($rows) {
                 $latestOrigin = $rows->first()->origin_date->toDateString();
 
@@ -37,13 +38,38 @@ class ProductForecastController extends Controller
         foreach ($latestForecasts as $productId => $forecasts) {
             foreach ([7, 30] as $days) {
                 $selected = $forecasts->first(fn ($row) => $row->horizon_days === $days && ($row->evaluation['selected'] ?? false));
-                if ($selected && $selected->origin_date->isToday() && ($selected->evaluation['mode'] ?? null) === 'current') {
+                if ($days === 7 && $selected && ($selected->evaluation['mode'] ?? null) === 'current' && CarbonImmutable::parse($selected->origin_date)->addDays(7)->gte(today())) {
                     $planning[$productId][$days] = $service->recommendation($selected);
                 }
             }
         }
+        $completedEvaluations = ProductForecast::query()->with('product')
+            ->where('horizon_days', 7)->orderByDesc('origin_date')->limit(80)->get()
+            ->filter(fn ($forecast) => ($forecast->evaluation['selected'] ?? false)
+                && ($forecast->evaluation['mode'] ?? null) === 'current'
+                && ($forecast->evaluation['week_start'] ?? null)
+                && CarbonImmutable::parse($forecast->origin_date)->addDays(7)->lt(today()))
+            ->map(function ($forecast) {
+                $weekStart = CarbonImmutable::parse($forecast->origin_date)->addDay();
+                $weekEnd = $weekStart->addDays(6);
+                $hasWeeklyOrders = SalesOrder::query()->where('status', '!=', 'cancelled')
+                    ->whereDate('ordered_on', '>=', $weekStart->toDateString())
+                    ->whereDate('ordered_on', '<=', $weekEnd->toDateString())->exists();
+                if (! $hasWeeklyOrders) {
+                    return null;
+                }
+                $actualCases = (int) DB::table('sales_order_items')
+                    ->join('sales_orders', 'sales_order_items.sales_order_id', '=', 'sales_orders.id')
+                    ->where('sales_order_items.product_id', $forecast->product_id)
+                    ->where('sales_orders.status', '!=', 'cancelled')
+                    ->whereDate('sales_orders.ordered_on', '>=', $weekStart->toDateString())
+                    ->whereDate('sales_orders.ordered_on', '<=', $weekEnd->toDateString())
+                    ->sum('sales_order_items.cases_ordered');
 
-        return view('packaged.forecasts', compact('products', 'latestForecasts', 'latestOrderDate', 'stock', 'nearExpiry', 'planning'));
+                return ['product' => $forecast->product->name, 'week_start' => $weekStart, 'week_end' => $weekEnd, 'predicted_cases' => (float) $forecast->predicted_cases, 'actual_cases' => $actualCases, 'error_cases' => (float) $forecast->predicted_cases - $actualCases];
+            })->filter()->take(12);
+
+        return view('packaged.forecasts', compact('products', 'latestForecasts', 'latestOrderDate', 'stock', 'nearExpiry', 'planning', 'completedEvaluations'));
     }
 
     public function run(Request $request, ProductForecastService $service, AuditTrail $auditTrail, AppAlertService $alerts): RedirectResponse
@@ -70,15 +96,17 @@ class ProductForecastController extends Controller
     public function decision(Request $request, ProductForecast $forecast, AuditTrail $auditTrail, ProductForecastService $service, AppAlertService $alerts): RedirectResponse
     {
         abort_unless(
-            in_array($forecast->method, ['random_forest', 'gradient_boosting'], true)
+            $forecast->horizon_days === 7
+            && in_array($forecast->method, ['previous_week', 'random_forest', 'gradient_boosting'], true)
             && (bool) ($forecast->evaluation['selected'] ?? false)
             && ($forecast->evaluation['mode'] ?? null) === 'current'
-            && $forecast->origin_date->isToday(),
+            && $forecast->origin_date->lt(today())
+            && CarbonImmutable::parse($forecast->origin_date)->addDays(7)->gte(today()),
             422
         );
         $data = $request->validate([
             'approved_cases' => ['required', 'integer', 'min:0'],
-            'planned_for' => ['required', 'date', 'after_or_equal:today', 'before_or_equal:'.today()->addDays($forecast->horizon_days)->toDateString()],
+            'planned_for' => ['required', 'date', 'after_or_equal:'.today()->toDateString(), 'before_or_equal:'.CarbonImmutable::parse($forecast->origin_date)->addDays(7)->toDateString()],
             'reason' => ['nullable', 'string', 'max:2000'],
         ]);
         $currentRecommendation = $service->recommendation($forecast);
