@@ -33,8 +33,8 @@ assert len(orders) == len(set(orders)) and len(items) == len(set(items)) and len
 
 start = date.fromisoformat(metadata['period_start'])
 end = date.fromisoformat(metadata['period_end'])
-assert start == date(2024, 1, 1) and end == date(2026, 9, 30)
-assert (end - start).days + 1 == metadata['days'] == 1004
+assert start == date(2024, 1, 1) and end == date(2026, 10, 26)
+assert (end - start).days + 1 == metadata['days'] == 1030
 
 demand = {(row['date'], int(row['product_id'])): int(row['cases_ordered']) for row in tables['daily_product_demand']}
 assert len(demand) == metadata['days'] * len(products)

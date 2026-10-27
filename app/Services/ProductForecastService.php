@@ -64,12 +64,12 @@ class ProductForecastService
         if ($rows->isEmpty()) {
             return ['available' => false, 'reason' => 'No dated orders have been recorded for this product.'];
         }
-        $lastOrderDate = CarbonImmutable::parse($rows->last()->order_day);
+        $lastOrderDate = CarbonImmutable::parse($rows->last()->order_day, 'Africa/Nairobi')->startOfDay();
         if (! $historical && $lastOrderDate->diffInDays(CarbonImmutable::today('Africa/Nairobi')) > 14) {
             return ['available' => false, 'reason' => 'The latest order is too old for a current forecast. Use the historical demonstration or record recent genuine orders.'];
         }
         $byDate = $rows->pluck('cases', 'order_day');
-        $date = CarbonImmutable::parse($rows->first()->order_day);
+        $date = CarbonImmutable::parse($rows->first()->order_day, 'Africa/Nairobi')->startOfDay();
         $today = CarbonImmutable::today('Africa/Nairobi');
         $asOfDate = $historical ? $lastOrderDate : $today;
         $daysSinceSunday = $asOfDate->dayOfWeek === 0 && ! $historical ? 7 : $asOfDate->dayOfWeek;

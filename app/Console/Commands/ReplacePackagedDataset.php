@@ -20,9 +20,10 @@ class ReplacePackagedDataset extends Command
             $metadata = json_decode((string) file_get_contents($directory.DIRECTORY_SEPARATOR.'dataset_metadata.json'), true, flags: JSON_THROW_ON_ERROR);
             if (($metadata['dataset_type'] ?? null) !== 'Entirely synthetic'
                 || ($metadata['period_start'] ?? null) !== '2024-01-01'
-                || ($metadata['period_end'] ?? null) !== '2026-09-30'
-                || ($metadata['months'] ?? null) !== 33) {
-                throw new RuntimeException('Dataset metadata does not match the intended 33-month synthetic period.');
+                || ($metadata['period_end'] ?? null) !== '2026-10-26'
+                || ($metadata['months'] ?? null) !== 34
+                || ($metadata['days'] ?? null) !== 1030) {
+                throw new RuntimeException('Dataset metadata does not match the intended period through 26 October 2026.');
             }
 
             $python = config('services.analytics.python');
@@ -43,7 +44,7 @@ class ReplacePackagedDataset extends Command
             }
 
             $this->table(['Dataset', 'Validated records'], [
-                ['Period', '2024-01-01 to 2026-09-30'],
+                ['Period', $metadata['period_start'].' to '.$metadata['period_end']],
                 ['Customers', count($data['customers'])],
                 ['Orders', count($data['sales_orders'])],
                 ['Order items', count($data['sales_order_items'])],

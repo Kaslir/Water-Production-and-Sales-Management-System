@@ -1,44 +1,46 @@
 {
-  "dataset_name": "AquaTrack packaged-water synthetic dataset, stock-aware scenario",
+  "dataset_name": "AquaTrack packaged-water synthetic dataset, stock-aware scenario through 2026-10-26",
   "dataset_type": "Entirely synthetic",
   "period_start": "2024-01-01",
-  "period_end": "2026-09-30",
-  "months": 33,
-  "days": 1004,
+  "period_end": "2026-10-26",
+  "months": 34,
+  "days": 1030,
   "random_seed": 20261020,
   "units": "Cases ordered per product per calendar day; one case uses products.bottles_per_case",
-  "generation_method": "Original synthetic orders and demand retained unchanged. Production and FEFO dispatch were regenerated using prior 28-day demand, a 1.5-day reserve, same-day contingency production, quality release, and expiry disposal.",
+  "generation_method": "Synthetic orders through September 2026 were retained and October 2026 orders were generated with a fixed seed and preceding 28-day demand. Production and FEFO dispatch were rebuilt using prior demand, a 1.5-day reserve, same-day contingency, quality release, and expiry disposal.",
   "forecast_target": "daily_product_demand.cases_ordered, including zero-order dates",
   "suggested_split": {
     "training": "2024-01-01 to 2025-09-30",
     "validation": "2025-10-01 to 2026-03-31",
-    "later_period_previously_examined": "2026-04-01 to 2026-09-30"
+    "later_period_previously_examined": "2026-04-01 to 2026-10-26"
   },
   "source_limitations": [
     "No records were observed at a real water company; all customers and transactions are fictional.",
     "Forecasting accuracy on these files only measures performance on this synthetic generator.",
     "The generated order pattern contains programmed seasonality, trend, random variation, and occasional exceptional demand.",
     "Historical aggregate-litre CSVs are separate and must not be combined with this product-level history.",
-    "Stock-aware production is simulated; same-day contingency and quality release are simplifying assumptions."
+    "Stock-aware production is simulated; same-day contingency and quality release are simplifying assumptions.",
+    "October 2026 orders are newly simulated, not newly observed company transactions."
   ],
   "record_counts": {
     "products": 4,
     "customers": 24,
-    "daily_product_demand": 4016,
-    "sales_orders": 3034,
-    "sales_order_items": 11983,
-    "production_batches": 576,
-    "dispatches": 3028,
-    "dispatch_lines": 12425,
-    "invoices": 3028,
-    "payments": 3017,
-    "stock_movements": 13002,
+    "daily_product_demand": 4120,
+    "sales_orders": 3107,
+    "sales_order_items": 12269,
+    "production_batches": 592,
+    "dispatches": 3097,
+    "dispatch_lines": 12705,
+    "invoices": 3097,
+    "payments": 3071,
+    "stock_movements": 13298,
     "batch_disposals": 1
   },
+  "extension_random_seed": 20261027,
   "stock_scenario": {
     "monday_plan": "Prior 28-day mean demand times 7 plus 1.5-day reserve, less eligible stock",
     "contingency": "Same-day synthetic production covers an order when planned stock is insufficient",
     "demonstration_event": "2500 cases of 20 L overproduction on 2024-02-01",
-    "source_daily_demand_sha256": "7812a322448c360c10ddaa8df74394388242fc9e85fbd5df58b4251b333155b5"
+    "source_daily_demand_sha256": "87a2d694b11ff3cf0f872633340fe627872b4ac7ffb900e2d8ea841a8ce2f721"
   }
 }
