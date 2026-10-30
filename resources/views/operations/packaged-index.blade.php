@@ -14,11 +14,11 @@
 <div class="row g-3 mb-3">@foreach($stockByProduct as $stock)<div class="col-md-3"><div class="metric"><span class="metric-label">{{ $stock->name }}</span><span class="metric-value">{{ number_format($stock->cases) }} cases</span></div></div>@endforeach</div>
 <p class="tiny">Available stock includes only released, unexpired cases not reserved for confirmed orders. Stock leaves inventory once, at dispatch.</p>
 @endif
-@if(in_array($type, ['production', 'inventory'], true))
+@if(in_array($type, ['production', 'inventory', 'distribution'], true))
 <form class="toolbar mb-3" method="get" action="{{ route($type.'.index') }}">
-    <div><label class="form-label" for="batch-filter">Batch code</label><input class="form-control" id="batch-filter" name="batch" value="{{ $filters['batch'] ?? '' }}" placeholder="Search batch code"></div>
-    <div><label class="form-label" for="batch-date-from">{{ $type === 'production' ? 'Produced' : 'Movement' }} from</label><input class="form-control" id="batch-date-from" name="from" type="date" value="{{ $filters['from'] ?? '' }}"></div>
-    <div><label class="form-label" for="batch-date-to">{{ $type === 'production' ? 'Produced' : 'Movement' }} to</label><input class="form-control" id="batch-date-to" name="to" type="date" value="{{ $filters['to'] ?? '' }}"></div>
+    <div><label class="form-label" for="record-filter">{{ $type === 'distribution' ? 'Order number' : 'Batch code' }}</label><input class="form-control" id="record-filter" name="{{ $type === 'distribution' ? 'order' : 'batch' }}" value="{{ $type === 'distribution' ? ($filters['order'] ?? '') : ($filters['batch'] ?? '') }}" placeholder="{{ $type === 'distribution' ? 'Search order number' : 'Search batch code' }}"></div>
+    <div><label class="form-label" for="record-date-from">{{ match($type) {'production' => 'Produced', 'inventory' => 'Movement', 'distribution' => 'Dispatched'} }} from</label><input class="form-control" id="record-date-from" name="from" type="date" value="{{ $filters['from'] ?? '' }}"></div>
+    <div><label class="form-label" for="record-date-to">{{ match($type) {'production' => 'Produced', 'inventory' => 'Movement', 'distribution' => 'Dispatched'} }} to</label><input class="form-control" id="record-date-to" name="to" type="date" value="{{ $filters['to'] ?? '' }}"></div>
     <div class="align-self-end d-flex gap-2"><button class="btn btn-brand" type="submit">Apply filters</button><a class="btn btn-outline-secondary" href="{{ route($type.'.index') }}">Clear</a></div>
 </form>
 @endif
@@ -36,7 +36,7 @@
             @elseif($type === 'inventory')<td class="px-3">{{ $row->created_at->format('d M Y') }}</td><td><a href="{{ route('packaged.batches.show', $row->batch) }}">{{ $row->batch->batch_code }}</a></td><td>{{ $row->batch->product->name }}</td><td>{{ str_replace('_', ' ', ucfirst($row->reason)) }}</td><td>{{ $row->signed_cases > 0 ? '+' : '' }}{{ number_format($row->signed_cases) }} cases</td><td>{{ $row->notes ?: '—' }}</td>
             @elseif($type === 'distribution')<td class="px-3">{{ $row->dispatched_on->format('d M Y') }}</td><td><a href="{{ route('packaged.orders.show', $row->order) }}">{{ $row->order->order_number }}</a></td><td>{{ $row->order->customer->name }}</td><td>{{ $row->order->delivery_address }}</td><td>{{ number_format($row->lines->sum('cases')) }} cases</td><td>{{ ucfirst($row->status) }}</td>
             @else<td class="px-3">{{ $row->invoice_number }}</td><td>{{ $row->issued_on->format('d M Y') }}</td><td><a href="{{ route('packaged.orders.show', $row->order) }}">{{ $row->order->order_number }}</a></td><td>{{ $row->order->customer->name }}</td><td>{{ number_format($row->order->items->sum('cases_ordered')) }} cases</td><td>KSh {{ number_format($row->amount, 2) }}</td><td>KSh {{ number_format($row->payments->sum('amount'), 2) }}</td><td>{{ ucfirst($row->status) }}</td>@endif
-        </tr>@empty<tr><td colspan="8" class="p-5 text-center text-muted">{{ in_array($type, ['production', 'inventory'], true) && array_filter($filters) ? 'No '.$type.' records match these filters.' : 'No '.$type.' records yet.' }}</td></tr>@endforelse</tbody>
+        </tr>@empty<tr><td colspan="8" class="p-5 text-center text-muted">{{ in_array($type, ['production', 'inventory', 'distribution'], true) && array_filter($filters) ? 'No '.$type.' records match these filters.' : 'No '.$type.' records yet.' }}</td></tr>@endforelse</tbody>
     </table></div><div class="p-3 border-top">{{ $rows->links() }}</div>
 </div>
 @endsection

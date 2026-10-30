@@ -52,8 +52,9 @@ class OperationsController extends Controller
 
     private function packagedIndex(Request $request, string $type): View
     {
-        $filters = in_array($type, ['production', 'inventory'], true) ? $request->validate([
-            'batch' => ['nullable', 'string', 'max:80'],
+        $searchKey = $type === 'distribution' ? 'order' : 'batch';
+        $filters = in_array($type, ['production', 'inventory', 'distribution'], true) ? $request->validate([
+            $searchKey => ['nullable', 'string', 'max:80'],
             'from' => ['nullable', 'date_format:Y-m-d'],
             'to' => ['nullable', 'date_format:Y-m-d', ...($request->filled('from') ? ['after_or_equal:from'] : [])],
         ]) : [];
@@ -83,10 +84,23 @@ class OperationsController extends Controller
                 $movementQuery->whereDate('created_at', '<=', $filters['to']);
             }
         }
+        $dispatchQuery = Dispatch::query();
+        if ($type === 'distribution') {
+            $orderNumber = trim($filters['order'] ?? '');
+            if ($orderNumber !== '') {
+                $dispatchQuery->whereHas('order', fn ($query) => $query->where('order_number', 'like', '%'.$orderNumber.'%'));
+            }
+            if (! empty($filters['from'])) {
+                $dispatchQuery->whereDate('dispatched_on', '>=', $filters['from']);
+            }
+            if (! empty($filters['to'])) {
+                $dispatchQuery->whereDate('dispatched_on', '<=', $filters['to']);
+            }
+        }
         $rows = match ($type) {
             'production' => (clone $productionQuery)->with('product')->orderByDesc('produced_on')->orderByDesc('id')->paginate(20)->withQueryString(),
             'inventory' => $movementQuery->with('batch.product')->orderByDesc('id')->paginate(20)->withQueryString(),
-            'distribution' => Dispatch::with(['order.customer', 'lines'])->orderByDesc('dispatched_on')->orderByDesc('id')->paginate(20),
+            'distribution' => (clone $dispatchQuery)->with(['order.customer', 'lines'])->orderByDesc('dispatched_on')->orderByDesc('id')->paginate(20)->withQueryString(),
             'sales' => Invoice::with(['order.customer', 'order.items', 'payments'])->orderByDesc('issued_on')->orderByDesc('id')->paginate(20),
             default => abort(404),
         };
@@ -94,7 +108,7 @@ class OperationsController extends Controller
         $summary = match ($type) {
             'production' => ['label' => 'Cases produced', 'value' => (clone $productionQuery)->sum('cases_produced'), 'suffix' => 'cases'],
             'inventory' => ['label' => 'Available saleable stock', 'value' => ProductionBatch::where('status', 'released')->whereDate('expires_on', '>=', today())->selectRaw('COALESCE(SUM(cases_on_hand - cases_reserved), 0) as total')->value('total'), 'suffix' => 'cases'],
-            'distribution' => ['label' => 'Cases dispatched', 'value' => DB::table('dispatch_lines')->sum('cases'), 'suffix' => 'cases'],
+            'distribution' => ['label' => 'Cases dispatched', 'value' => DB::table('dispatch_lines')->whereIn('dispatch_id', (clone $dispatchQuery)->select('id'))->sum('cases'), 'suffix' => 'cases'],
             'sales' => ['label' => 'Invoiced sales', 'value' => Invoice::sum('amount'), 'suffix' => 'KSh'],
         };
 
