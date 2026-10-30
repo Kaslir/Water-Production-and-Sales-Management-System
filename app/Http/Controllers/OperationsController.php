@@ -52,11 +52,16 @@ class OperationsController extends Controller
 
     private function packagedIndex(Request $request, string $type): View
     {
-        $searchKey = $type === 'distribution' ? 'order' : 'batch';
-        $filters = in_array($type, ['production', 'inventory', 'distribution'], true) ? $request->validate([
+        $searchKey = match ($type) {
+            'distribution' => 'order',
+            'sales' => 'invoice',
+            default => 'batch',
+        };
+        $filters = in_array($type, ['production', 'inventory', 'distribution', 'sales'], true) ? $request->validate([
             $searchKey => ['nullable', 'string', 'max:80'],
             'from' => ['nullable', 'date_format:Y-m-d'],
             'to' => ['nullable', 'date_format:Y-m-d', ...($request->filled('from') ? ['after_or_equal:from'] : [])],
+            ...($type === 'sales' ? ['status' => ['nullable', 'in:unpaid,part_paid,paid,credited,settled,credit_due']] : []),
         ]) : [];
         $productionQuery = ProductionBatch::query();
         if ($type === 'production') {
@@ -97,11 +102,27 @@ class OperationsController extends Controller
                 $dispatchQuery->whereDate('dispatched_on', '<=', $filters['to']);
             }
         }
+        $invoiceQuery = Invoice::query();
+        if ($type === 'sales') {
+            $invoiceNumber = trim($filters['invoice'] ?? '');
+            if ($invoiceNumber !== '') {
+                $invoiceQuery->where('invoice_number', 'like', '%'.$invoiceNumber.'%');
+            }
+            if (! empty($filters['from'])) {
+                $invoiceQuery->whereDate('issued_on', '>=', $filters['from']);
+            }
+            if (! empty($filters['to'])) {
+                $invoiceQuery->whereDate('issued_on', '<=', $filters['to']);
+            }
+            if (! empty($filters['status'])) {
+                $invoiceQuery->where('status', $filters['status']);
+            }
+        }
         $rows = match ($type) {
             'production' => (clone $productionQuery)->with('product')->orderByDesc('produced_on')->orderByDesc('id')->paginate(20)->withQueryString(),
             'inventory' => $movementQuery->with('batch.product')->orderByDesc('id')->paginate(20)->withQueryString(),
             'distribution' => (clone $dispatchQuery)->with(['order.customer', 'lines'])->orderByDesc('dispatched_on')->orderByDesc('id')->paginate(20)->withQueryString(),
-            'sales' => Invoice::with(['order.customer', 'order.items', 'payments'])->orderByDesc('issued_on')->orderByDesc('id')->paginate(20),
+            'sales' => (clone $invoiceQuery)->with(['order.customer', 'order.items', 'payments'])->orderByDesc('issued_on')->orderByDesc('id')->paginate(20)->withQueryString(),
             default => abort(404),
         };
 
@@ -109,7 +130,7 @@ class OperationsController extends Controller
             'production' => ['label' => 'Cases produced', 'value' => (clone $productionQuery)->sum('cases_produced'), 'suffix' => 'cases'],
             'inventory' => ['label' => 'Available saleable stock', 'value' => ProductionBatch::where('status', 'released')->whereDate('expires_on', '>=', today())->selectRaw('COALESCE(SUM(cases_on_hand - cases_reserved), 0) as total')->value('total'), 'suffix' => 'cases'],
             'distribution' => ['label' => 'Cases dispatched', 'value' => DB::table('dispatch_lines')->whereIn('dispatch_id', (clone $dispatchQuery)->select('id'))->sum('cases'), 'suffix' => 'cases'],
-            'sales' => ['label' => 'Invoiced sales', 'value' => Invoice::sum('amount'), 'suffix' => 'KSh'],
+            'sales' => ['label' => 'Invoiced sales', 'value' => (clone $invoiceQuery)->sum('amount'), 'suffix' => 'KSh'],
         };
 
         $stockByProduct = $type === 'inventory'
