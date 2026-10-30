@@ -11,10 +11,12 @@ use App\Models\Payment;
 use App\Models\Product;
 use App\Models\ProductionBatch;
 use App\Models\ProductionForecastDecision;
+use App\Models\ProductManufacturingPolicy;
 use App\Models\SalesOrder;
 use App\Models\SalesOrderItem;
 use App\Models\SalesReturn;
 use App\Models\StockMovement;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -26,17 +28,38 @@ class PackagedWaterService
     public function createBatch(array $data, int $actorId): ProductionBatch
     {
         return DB::transaction(function () use ($data, $actorId): ProductionBatch {
+            $policy = null;
+            if (! isset($data['expires_on'])) {
+                $policy = ProductManufacturingPolicy::query()
+                    ->where('product_id', $data['product_id'])
+                    ->whereDate('effective_from', '<=', $data['produced_on'])
+                    ->orderByDesc('effective_from')->first();
+                if (! $policy) {
+                    throw ValidationException::withMessages(['product_id' => 'A manager must approve manufacturing costs and shelf life for this product before a batch can be recorded.']);
+                }
+                $data['expires_on'] = CarbonImmutable::parse($data['produced_on'])->addDays($policy->shelf_life_days)->toDateString();
+                foreach (['water_treatment_cost' => 'water_treatment_per_case', 'bottle_cost' => 'bottle_per_case', 'inbound_transport_cost' => 'inbound_transport_per_case', 'cap_label_cost' => 'cap_label_per_case', 'labour_cost' => 'labour_per_case', 'electricity_cost' => 'electricity_per_case', 'other_production_cost' => 'other_production_per_case'] as $batchField => $policyField) {
+                    $data[$batchField] = round((float) $policy->{$policyField} * (int) $data['cases_produced'], 2);
+                }
+            }
+            $data['batch_code'] ??= 'B-'.CarbonImmutable::parse($data['produced_on'])->format('Ymd').'-'.$data['product_id'].'-'.Str::upper((string) Str::ulid());
             $plan = isset($data['production_forecast_decision_id'])
                 ? ProductionForecastDecision::query()->with('forecast')->lockForUpdate()->findOrFail($data['production_forecast_decision_id'])
-                : null;
+                : ProductionForecastDecision::query()->with('forecast')
+                    ->where('plan_status', 'planned')
+                    ->whereDate('planned_for', $data['produced_on'])
+                    ->whereRaw('approved_cases - cases_completed >= ?', [(int) $data['cases_produced']])
+                    ->whereHas('forecast', fn ($query) => $query->where('product_id', $data['product_id']))
+                    ->orderBy('id')->lockForUpdate()->first();
             if ($plan) {
                 $this->require($plan->plan_status === 'planned' && $plan->forecast->product_id === (int) $data['product_id'], 'The selected production plan is not active for this product.');
-                $this->require($plan->planned_for->gte(today()) && $plan->approved_cases - $plan->cases_completed >= (int) $data['cases_produced'], 'This batch exceeds the remaining approved plan or the plan date has passed.');
+                $this->require($plan->planned_for->toDateString() === $data['produced_on'] && $plan->approved_cases - $plan->cases_completed >= (int) $data['cases_produced'], 'This batch exceeds the remaining approved plan or the plan date does not match.');
             }
             $costFields = ['water_treatment_cost', 'bottle_cost', 'inbound_transport_cost', 'cap_label_cost', 'labour_cost', 'electricity_cost', 'other_production_cost'];
             $totalCost = round(array_sum(array_map(fn (string $field): float => (float) ($data[$field] ?? 0), $costFields)), 2);
             $batch = ProductionBatch::create([
                 'product_id' => $data['product_id'],
+                'manufacturing_policy_id' => $policy?->id,
                 'production_forecast_decision_id' => $plan?->id,
                 'batch_code' => $data['batch_code'],
                 'produced_on' => $data['produced_on'],

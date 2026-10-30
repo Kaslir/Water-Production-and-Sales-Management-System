@@ -59,6 +59,8 @@ Route::middleware(['auth', 'active', DailyAlertScan::class])->group(function () 
         Route::post('/packaged/batches', [PackagedProductionController::class, 'store'])->name('packaged.batches.store');
     });
     Route::middleware('role:administrator,manager')->group(function () {
+        Route::get('/packaged/manufacturing-settings', [PackagedProductionController::class, 'manufacturingSettings'])->name('packaged.manufacturing-settings.index');
+        Route::post('/packaged/products/{product}/manufacturing-settings', [PackagedProductionController::class, 'saveManufacturingSettings'])->name('packaged.manufacturing-settings.store');
         Route::post('/packaged/batches/{batch}/release', [PackagedProductionController::class, 'release'])->name('packaged.batches.release');
         Route::post('/packaged/batches/{batch}/quarantine', [PackagedProductionController::class, 'quarantine'])->name('packaged.batches.quarantine');
         Route::post('/packaged/batches/{batch}/dispose', [PackagedProductionController::class, 'dispose'])->name('packaged.batches.dispose');
