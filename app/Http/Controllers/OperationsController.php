@@ -23,7 +23,7 @@ class OperationsController extends Controller
             return view('operations.index', compact('type', 'rows'));
         }
 
-        return $this->packagedIndex($type);
+        return $this->packagedIndex($request, $type);
     }
 
     public function create(Request $request, string $type): View
@@ -50,18 +50,49 @@ class OperationsController extends Controller
         return redirect()->route('customers.index')->with('status', 'Customer record saved.');
     }
 
-    private function packagedIndex(string $type): View
+    private function packagedIndex(Request $request, string $type): View
     {
+        $filters = in_array($type, ['production', 'inventory'], true) ? $request->validate([
+            'batch' => ['nullable', 'string', 'max:80'],
+            'from' => ['nullable', 'date_format:Y-m-d'],
+            'to' => ['nullable', 'date_format:Y-m-d', ...($request->filled('from') ? ['after_or_equal:from'] : [])],
+        ]) : [];
+        $productionQuery = ProductionBatch::query();
+        if ($type === 'production') {
+            $batchCode = trim($filters['batch'] ?? '');
+            if ($batchCode !== '') {
+                $productionQuery->where('batch_code', 'like', '%'.$batchCode.'%');
+            }
+            if (! empty($filters['from'])) {
+                $productionQuery->whereDate('produced_on', '>=', $filters['from']);
+            }
+            if (! empty($filters['to'])) {
+                $productionQuery->whereDate('produced_on', '<=', $filters['to']);
+            }
+        }
+        $movementQuery = StockMovement::query();
+        if ($type === 'inventory') {
+            $batchCode = trim($filters['batch'] ?? '');
+            if ($batchCode !== '') {
+                $movementQuery->whereHas('batch', fn ($query) => $query->where('batch_code', 'like', '%'.$batchCode.'%'));
+            }
+            if (! empty($filters['from'])) {
+                $movementQuery->whereDate('created_at', '>=', $filters['from']);
+            }
+            if (! empty($filters['to'])) {
+                $movementQuery->whereDate('created_at', '<=', $filters['to']);
+            }
+        }
         $rows = match ($type) {
-            'production' => ProductionBatch::with('product')->orderByDesc('produced_on')->orderByDesc('id')->paginate(20),
-            'inventory' => StockMovement::with('batch.product')->orderByDesc('id')->paginate(20),
+            'production' => (clone $productionQuery)->with('product')->orderByDesc('produced_on')->orderByDesc('id')->paginate(20)->withQueryString(),
+            'inventory' => $movementQuery->with('batch.product')->orderByDesc('id')->paginate(20)->withQueryString(),
             'distribution' => Dispatch::with(['order.customer', 'lines'])->orderByDesc('dispatched_on')->orderByDesc('id')->paginate(20),
             'sales' => Invoice::with(['order.customer', 'order.items', 'payments'])->orderByDesc('issued_on')->orderByDesc('id')->paginate(20),
             default => abort(404),
         };
 
         $summary = match ($type) {
-            'production' => ['label' => 'Cases produced', 'value' => ProductionBatch::sum('cases_produced'), 'suffix' => 'cases'],
+            'production' => ['label' => 'Cases produced', 'value' => (clone $productionQuery)->sum('cases_produced'), 'suffix' => 'cases'],
             'inventory' => ['label' => 'Available saleable stock', 'value' => ProductionBatch::where('status', 'released')->whereDate('expires_on', '>=', today())->selectRaw('COALESCE(SUM(cases_on_hand - cases_reserved), 0) as total')->value('total'), 'suffix' => 'cases'],
             'distribution' => ['label' => 'Cases dispatched', 'value' => DB::table('dispatch_lines')->sum('cases'), 'suffix' => 'cases'],
             'sales' => ['label' => 'Invoiced sales', 'value' => Invoice::sum('amount'), 'suffix' => 'KSh'],
@@ -75,7 +106,7 @@ class OperationsController extends Controller
             })->select('products.name')->selectRaw('COALESCE(SUM(production_batches.cases_on_hand - production_batches.cases_reserved), 0) as cases')->groupBy('products.id', 'products.name')->orderBy('products.volume_ml')->get()
             : collect();
 
-        return view('operations.packaged-index', compact('type', 'rows', 'summary', 'stockByProduct'));
+        return view('operations.packaged-index', compact('type', 'rows', 'summary', 'stockByProduct', 'filters'));
     }
 
     private function authorizeType(Request $request, string $type): void
