@@ -1,5 +1,7 @@
 <?php
 
+use App\Http\Controllers\AccessRequestController;
+use App\Http\Controllers\AccessRequestReviewController;
 use App\Http\Controllers\AnalyticsController;
 use App\Http\Controllers\AuditLogController;
 use App\Http\Controllers\AuthController;
@@ -24,7 +26,10 @@ Route::redirect('/', '/dashboard');
 Route::middleware('guest')->group(function () {
     Route::get('/login', [AuthController::class, 'loginForm'])->name('login');
     Route::post('/login', [AuthController::class, 'login'])->name('login.submit');
+    Route::get('/request-access', [AccessRequestController::class, 'create'])->name('access.create');
+    Route::post('/request-access', [AccessRequestController::class, 'store'])->name('access.store');
 });
+Route::get('/request-access/verify/{accessRequest}', [AccessRequestController::class, 'verify'])->middleware('signed')->name('access.verify');
 
 Route::get('/forgot-password', [PasswordRecoveryController::class, 'requestForm'])->name('password.request');
 Route::post('/forgot-password', [PasswordRecoveryController::class, 'sendCode'])->name('password.email_code');
@@ -100,6 +105,10 @@ Route::middleware(['auth', 'active', DailyAlertScan::class])->group(function () 
     });
 
     Route::middleware('role:administrator')->group(function () {
+        Route::get('/access-requests', [AccessRequestReviewController::class, 'index'])->name('access.reviews.index');
+        Route::post('/access-requests/{accessRequest}/approve', [AccessRequestReviewController::class, 'approve'])->name('access.reviews.approve');
+        Route::post('/access-requests/{accessRequest}/reject', [AccessRequestReviewController::class, 'reject'])->name('access.reviews.reject');
+        Route::post('/access-requests/{accessRequest}/resend', [AccessRequestReviewController::class, 'resend'])->name('access.reviews.resend');
         Route::resource('users', UserManagementController::class)->except('show');
         Route::get('/technical-events', [TechnicalEventController::class, 'index'])->name('technical-events.index');
     });

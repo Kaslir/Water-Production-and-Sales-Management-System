@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Request access · AquaTrack</title><link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"><style>body{min-height:100vh;background:linear-gradient(120deg,#8b1e2d 0 38%,#f4f7fa 38%);font-family:system-ui}.panel{max-width:500px;margin:5vh auto;background:#fff;border-radius:9px;box-shadow:0 16px 42px #6d122833;padding:34px}.brand{font-weight:700;color:#8b1e2d;font-size:1.35rem}.form-label{font-size:.78rem;font-weight:700;color:#7d2530}.form-control{font-size:.86rem;padding:.7rem;border-color:#dbe4ea}.btn-brand{background:#b42332;color:#fff;padding:.7rem}.caption{font-size:.8rem;color:#718191}</style></head>
+<body><main class="panel"><div class="brand mb-4">AquaTrack</div><h1 class="h4 fw-bold">Request access</h1><p class="caption">Enter your details. After you verify your email, an administrator will review your request and assign your role.</p>
+@if($errors->any())<div class="alert alert-danger small">{{ $errors->first() }}</div>@endif
+<form method="post" action="{{ route('access.store') }}">@csrf
+<label class="form-label" for="name">FULL NAME</label><input class="form-control mb-3" id="name" name="name" value="{{ old('name') }}" required maxlength="255" autocomplete="name">
+<label class="form-label" for="email">EMAIL</label><input class="form-control mb-3" id="email" name="email" type="email" value="{{ old('email') }}" required autocomplete="email">
+<label class="form-label" for="phone">PHONE NUMBER</label><input class="form-control mb-3" id="phone" name="phone_number" type="tel" value="{{ old('phone_number') }}" required placeholder="0712345678" maxlength="10" autocomplete="tel">
+<label class="form-label" for="password">PASSWORD</label><input class="form-control mb-3" id="password" name="password" type="password" required minlength="12" autocomplete="new-password">
+<label class="form-label" for="confirmation">CONFIRM PASSWORD</label><input class="form-control mb-4" id="confirmation" name="password_confirmation" type="password" required minlength="12" autocomplete="new-password">
+<button class="btn btn-brand w-100">Submit request</button></form><div class="text-center mt-3"><a href="{{ route('login') }}">Back to login</a></div></main></body></html>

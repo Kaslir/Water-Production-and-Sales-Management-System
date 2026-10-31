@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AccessRequest;
 use App\Models\User;
 use App\Services\AuditTrail;
 use Illuminate\Http\Request;
@@ -15,7 +16,9 @@ class UserManagementController extends Controller
             ->when($request->string('search')->toString(), fn ($query, $search) => $query->where(fn ($q) => $q->where('name', 'like', "%{$search}%")->orWhere('email', 'like', "%{$search}%")))
             ->orderBy('name')->paginate(15)->withQueryString();
 
-        return view('users.index', compact('users'));
+        $pendingRequests = AccessRequest::where('status', 'pending')->whereNotNull('email_verified_at')->count();
+
+        return view('users.index', compact('users', 'pendingRequests'));
     }
 
     public function create()
@@ -66,6 +69,7 @@ class UserManagementController extends Controller
         return $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user?->user_id, 'user_id')],
+            'phone_number' => ['nullable', 'regex:/^0[17]\d{8}$/'],
             'role' => ['required', Rule::in(User::ROLES)],
             'is_active' => ['required', 'boolean'],
             'password' => [$user ? 'nullable' : 'required', 'string', 'min:12', 'confirmed'],
