@@ -49,7 +49,7 @@ class AccessRequestFlowTest extends TestCase
 
         $administrator = $this->administrator();
         $this->actingAs($administrator)->post(route('access.reviews.approve', $accessRequest), ['role' => 'inventory_staff'])->assertStatus(422);
-        $this->actingAs($administrator)->get(route('users.index'))->assertOk()->assertSee('Access requests');
+        $this->actingAs($administrator)->get(route('users.index'))->assertOk()->assertSee('Pending requests');
         $this->actingAs($administrator)->get(route('access.reviews.index'))->assertOk()->assertSee('Awaiting email verification');
         $verificationUrl = URL::temporarySignedRoute('access.verify', now()->addDay(), ['accessRequest' => $accessRequest->id, 'nonce' => $accessRequest->verification_nonce]);
         $this->get($verificationUrl)->assertRedirect(route('login'));

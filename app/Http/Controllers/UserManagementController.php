@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\AccessRequest;
 use App\Models\User;
 use App\Services\AuditTrail;
 use Illuminate\Http\Request;
@@ -12,13 +11,21 @@ class UserManagementController extends Controller
 {
     public function index(Request $request)
     {
+        $filters = $request->validate([
+            'search' => ['nullable', 'string', 'max:255'],
+            'role' => ['nullable', Rule::in(User::ROLES)],
+            'status' => ['nullable', Rule::in(['all', 'active', 'inactive'])],
+        ]);
+        $search = trim($filters['search'] ?? '');
+        $role = $filters['role'] ?? '';
+        $status = $filters['status'] ?? 'active';
         $users = User::query()
-            ->when($request->string('search')->toString(), fn ($query, $search) => $query->where(fn ($q) => $q->where('name', 'like', "%{$search}%")->orWhere('email', 'like', "%{$search}%")))
+            ->when($search !== '', fn ($query) => $query->where(fn ($q) => $q->where('name', 'like', "%{$search}%")->orWhere('email', 'like', "%{$search}%")))
+            ->when($role !== '', fn ($query) => $query->where('role', $role))
+            ->when($status !== 'all', fn ($query) => $query->where('is_active', $status === 'active'))
             ->orderBy('name')->paginate(15)->withQueryString();
 
-        $pendingRequests = AccessRequest::where('status', 'pending')->whereNotNull('email_verified_at')->count();
-
-        return view('users.index', compact('users', 'pendingRequests'));
+        return view('users.index', compact('users', 'search', 'role', 'status'));
     }
 
     public function create()
