@@ -2,13 +2,12 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\TechnicalEvent;
-use Illuminate\View\View;
+use Illuminate\Http\RedirectResponse;
 
 class TechnicalEventController extends Controller
 {
-    public function index(): View
+    public function index(): RedirectResponse
     {
-        return view('packaged.technical-events', ['events' => TechnicalEvent::query()->orderByDesc('id')->paginate(30)]);
+        return redirect()->route('logs.index', ['tab' => 'system']);
     }
 }

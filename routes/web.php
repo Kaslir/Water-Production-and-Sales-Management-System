@@ -6,6 +6,7 @@ use App\Http\Controllers\AnalyticsController;
 use App\Http\Controllers\AuditLogController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\LogController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\OperationsController;
 use App\Http\Controllers\PackagedProductionController;
@@ -101,6 +102,7 @@ Route::middleware(['auth', 'active', DailyAlertScan::class])->group(function () 
         Route::post('/packaged/expenses', [PackagedReportController::class, 'expense'])->name('packaged.expenses.store');
     });
     Route::middleware('role:administrator,auditor')->group(function () {
+        Route::get('/logs', [LogController::class, 'index'])->name('logs.index');
         Route::get('/audit-logs', [AuditLogController::class, 'index'])->name('audit.index');
     });
 

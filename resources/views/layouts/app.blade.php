@@ -31,10 +31,11 @@
     </nav>
     @if (auth()->user()->hasRole('administrator'))
         <div class="nav-heading">ADMINISTRATION</div>
-        <nav><a class="side-link {{ request()->routeIs('users.*') ? 'active' : '' }}" href="{{ route('users.index') }}"><i class="bi bi-person-gear"></i>Users</a><a class="side-link {{ request()->routeIs('technical-events.*') ? 'active' : '' }}" href="{{ route('technical-events.index') }}"><i class="bi bi-exclamation-triangle"></i>System events</a></nav>
+        <nav><a class="side-link {{ request()->routeIs('users.*') ? 'active' : '' }}" href="{{ route('users.index') }}"><i class="bi bi-person-gear"></i>Users</a></nav>
     @endif
     @if (auth()->user()->hasRole('administrator', 'auditor'))
-        <nav><a class="side-link {{ request()->routeIs('audit.*') ? 'active' : '' }}" href="{{ route('audit.index') }}"><i class="bi bi-journal-check"></i>Audit trail</a></nav>
+        <div class="nav-heading">LOGS</div>
+        <nav><a class="side-link {{ request()->routeIs('logs.*', 'audit.*', 'technical-events.*') ? 'active' : '' }}" href="{{ route('logs.index') }}"><i class="bi bi-journal-text"></i>Logs</a></nav>
     @endif
     @if (auth()->user()->hasRole('administrator', 'manager'))
         <div class="nav-heading">INSIGHTS</div>
