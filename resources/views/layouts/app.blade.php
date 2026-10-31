@@ -24,10 +24,9 @@
     </nav>
     <div class="nav-heading">PACKAGED WATER</div>
     <nav>
-        @if (auth()->user()->hasRole('administrator', 'manager', 'sales_staff'))<a class="side-link {{ request()->routeIs('customers.*') ? 'active' : '' }}" href="{{ route('customers.index') }}"><i class="bi bi-people"></i>Customers</a>@endif
+        @if (auth()->user()->hasRole('administrator', 'manager', 'sales_staff', 'distribution_staff'))<a class="side-link {{ request()->routeIs('customers.*', 'packaged.orders.*') ? 'active' : '' }}" href="{{ route('customers.index') }}"><i class="bi bi-people"></i>Customers</a>@endif
         @if (auth()->user()->hasRole('administrator', 'manager'))<a class="side-link {{ request()->routeIs('packaged.manufacturing-settings.*') ? 'active' : '' }}" href="{{ route('packaged.manufacturing-settings.index') }}"><i class="bi bi-gear"></i>Manufacturing settings</a>@endif
         @if (auth()->user()->hasRole('administrator', 'manager'))<a class="side-link {{ request()->routeIs('packaged.pricing.*') ? 'active' : '' }}" href="{{ route('packaged.pricing.index') }}"><i class="bi bi-tags"></i>Products &amp; pricing</a>@endif
-        @if (auth()->user()->hasRole('administrator', 'manager', 'sales_staff', 'distribution_staff'))<a class="side-link {{ request()->routeIs('packaged.orders.*') ? 'active' : '' }}" href="{{ route('packaged.orders.index') }}"><i class="bi bi-bag-check"></i>Customer orders</a>@endif
         @if (auth()->user()->hasRole('administrator', 'manager', 'auditor'))<a class="side-link {{ request()->routeIs('packaged.forecasts.*') ? 'active' : '' }}" href="{{ route('packaged.forecasts.index') }}"><i class="bi bi-stars"></i>Production planning</a><a class="side-link {{ request()->routeIs('packaged.reports.*') ? 'active' : '' }}" href="{{ route('packaged.reports.index') }}"><i class="bi bi-cash-stack"></i>Profit &amp; expiry</a>@endif
     </nav>
     @if (auth()->user()->hasRole('administrator'))

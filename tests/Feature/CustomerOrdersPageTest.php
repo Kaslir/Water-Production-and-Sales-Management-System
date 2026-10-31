@@ -47,7 +47,8 @@ class CustomerOrdersPageTest extends TestCase
         Payment::create(['invoice_id' => $invoice->id, 'amount' => 400, 'paid_on' => today()->toDateString(), 'method' => 'bank_transfer', 'recorded_by' => $user->user_id]);
 
         $this->actingAs($user)->get(route('customers.index', ['q' => 'Mary']))
-            ->assertOk()->assertSee($customer->name)->assertDontSee($other->name)->assertSee(route('customers.show', $customer));
+            ->assertOk()->assertSee($customer->name)->assertDontSee($other->name)->assertSee(route('customers.show', $customer))
+            ->assertSee(route('packaged.orders.index'))->assertSee('Customer orders');
         $this->actingAs($user)->get(route('customers.index', ['q' => '0712345678']))
             ->assertOk()->assertSee($customer->name)->assertDontSee($other->name);
         $this->actingAs($user)->get(route('customers.show', $customer))
@@ -61,5 +62,18 @@ class CustomerOrdersPageTest extends TestCase
         $customer = Customer::create(['name' => 'Hotel', 'phone_number' => '0712345678']);
 
         $this->actingAs($user)->get(route('customers.show', $customer))->assertForbidden();
+    }
+
+    public function test_distribution_staff_can_reach_orders_from_customers_without_customer_management_access(): void
+    {
+        $user = $this->user('distribution_staff');
+        $customer = Customer::create(['name' => 'Hotel', 'phone_number' => '0712345678']);
+
+        $this->actingAs($user)->get(route('customers.index'))
+            ->assertOk()->assertSee('Customer orders')->assertSee(route('packaged.orders.index'))
+            ->assertDontSee('Add customer')->assertDontSee(route('customers.show', $customer));
+        $this->actingAs($user)->get(route('packaged.orders.index'))->assertOk();
+        $this->actingAs($user)->get(route('customers.show', $customer))->assertForbidden();
+        $this->actingAs($user)->get(route('operations.create', 'customers'))->assertForbidden();
     }
 }

@@ -44,6 +44,7 @@ class OperationsController extends Controller
     public function customerShow(Request $request, Customer $customer): View
     {
         $this->authorizeType($request, 'customers');
+        abort_unless($request->user()->hasRole('administrator', 'manager', 'sales_staff'), 403);
         $orders = $customer->orders()->with(['items', 'invoice'])
             ->orderByDesc('ordered_on')->orderByDesc('id')->paginate(15);
         $orderCount = $customer->orders()->count();
@@ -68,6 +69,7 @@ class OperationsController extends Controller
     {
         $this->authorizeType($request, $type);
         abort_unless($type === 'customers', 404);
+        abort_unless($request->user()->hasRole('administrator', 'manager', 'sales_staff'), 403);
 
         return view('operations.form', ['type' => $type, 'customers' => Customer::orderBy('name')->get()]);
     }
@@ -76,6 +78,7 @@ class OperationsController extends Controller
     {
         $this->authorizeType($request, $type);
         abort_unless($type === 'customers', 404);
+        abort_unless($request->user()->hasRole('administrator', 'manager', 'sales_staff'), 403);
         $data = $request->validate([
             'name' => 'required|string|max:255',
             'phone_number' => 'required|string|max:30|unique:customers,phone_number',
@@ -198,7 +201,7 @@ class OperationsController extends Controller
 
     private function authorizeType(Request $request, string $type): void
     {
-        $roles = ['production' => ['administrator', 'manager', 'production_staff'], 'inventory' => ['administrator', 'manager', 'inventory_staff', 'production_staff'], 'distribution' => ['administrator', 'manager', 'distribution_staff'], 'sales' => ['administrator', 'manager', 'sales_staff'], 'customers' => ['administrator', 'manager', 'sales_staff']];
+        $roles = ['production' => ['administrator', 'manager', 'production_staff'], 'inventory' => ['administrator', 'manager', 'inventory_staff', 'production_staff'], 'distribution' => ['administrator', 'manager', 'distribution_staff'], 'sales' => ['administrator', 'manager', 'sales_staff'], 'customers' => ['administrator', 'manager', 'sales_staff', 'distribution_staff']];
         abort_unless(isset($roles[$type]) && $request->user()->hasRole(...$roles[$type]), 403);
     }
 }
