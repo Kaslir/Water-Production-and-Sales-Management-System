@@ -10,6 +10,7 @@ use App\Http\Controllers\PackagedProductionController;
 use App\Http\Controllers\PackagedReportController;
 use App\Http\Controllers\PasswordRecoveryController;
 use App\Http\Controllers\ProductForecastController;
+use App\Http\Controllers\ProductPricingController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\SalesOrderController;
@@ -61,11 +62,12 @@ Route::middleware(['auth', 'active', DailyAlertScan::class])->group(function () 
     Route::middleware('role:administrator,manager')->group(function () {
         Route::get('/packaged/manufacturing-settings', [PackagedProductionController::class, 'manufacturingSettings'])->name('packaged.manufacturing-settings.index');
         Route::post('/packaged/products/{product}/manufacturing-settings', [PackagedProductionController::class, 'saveManufacturingSettings'])->name('packaged.manufacturing-settings.store');
+        Route::get('/packaged/pricing', [ProductPricingController::class, 'index'])->name('packaged.pricing.index');
         Route::post('/packaged/batches/{batch}/release', [PackagedProductionController::class, 'release'])->name('packaged.batches.release');
         Route::post('/packaged/batches/{batch}/quarantine', [PackagedProductionController::class, 'quarantine'])->name('packaged.batches.quarantine');
         Route::post('/packaged/batches/{batch}/dispose', [PackagedProductionController::class, 'dispose'])->name('packaged.batches.dispose');
         Route::post('/packaged/batches/{batch}/recall', [PackagedProductionController::class, 'recall'])->name('packaged.batches.recall');
-        Route::post('/packaged/products/{product}/price', [PackagedProductionController::class, 'updatePrice'])->name('packaged.products.price');
+        Route::post('/packaged/products/{product}/price', [ProductPricingController::class, 'update'])->name('packaged.products.price');
     });
     Route::middleware('role:administrator,manager,sales_staff,distribution_staff')->group(function () {
         Route::get('/packaged/orders', [SalesOrderController::class, 'index'])->name('packaged.orders.index');

@@ -45,12 +45,14 @@ class InventoryMovementFilterTest extends TestCase
         $this->movement('B-NEW-002', 1, $user, $product);
 
         $this->actingAs($user)->get(route('inventory.index', [
+            'tab' => 'movements',
             'batch' => 'NEW',
             'from' => today()->subDays(6)->toDateString(),
             'to' => today()->subDays(2)->toDateString(),
         ]))->assertOk()->assertSee('B-NEW-001')->assertDontSee('B-NEW-002')->assertDontSee('B-OLD-001')->assertSee('1 records')->assertSee('30 cases');
 
         $this->actingAs($user)->get(route('inventory.index', [
+            'tab' => 'movements',
             'to' => today()->subDays(20)->toDateString(),
         ]))->assertOk()->assertSee('B-OLD-001')->assertDontSee('B-NEW-001');
     }
@@ -60,8 +62,26 @@ class InventoryMovementFilterTest extends TestCase
         $user = User::create(['name' => 'Inventory Staff', 'email' => 'inventory@example.test', 'password' => 'password-long-enough', 'role' => 'inventory_staff', 'is_active' => true]);
 
         $this->actingAs($user)->get(route('inventory.index', [
+            'tab' => 'movements',
             'from' => today()->toDateString(),
             'to' => today()->subDay()->toDateString(),
         ]))->assertSessionHasErrors('to');
+    }
+
+    public function test_batch_tab_filters_batches_and_production_staff_can_open_it(): void
+    {
+        $user = User::create(['name' => 'Production Staff', 'email' => 'production@example.test', 'password' => 'password-long-enough', 'role' => 'production_staff', 'is_active' => true]);
+        $product = Product::where('sku', 'WATER-500ML')->firstOrFail();
+        $this->movement('B-OLD-001', 30, $user, $product);
+        $this->movement('B-NEW-001', 5, $user, $product);
+
+        $this->actingAs($user)->get(route('inventory.index', [
+            'tab' => 'batches',
+            'batch' => 'NEW',
+            'from' => today()->subDays(6)->toDateString(),
+        ]))->assertOk()->assertSee('B-NEW-001')->assertDontSee('B-OLD-001')->assertSee('Record batch');
+
+        $this->actingAs($user)->get(route('packaged.batches.index'))
+            ->assertRedirect(route('inventory.index', ['tab' => 'batches']));
     }
 }

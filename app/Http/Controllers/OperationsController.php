@@ -34,6 +34,10 @@ class OperationsController extends Controller
             return view('operations.index', compact('type', 'rows', 'search'));
         }
 
+        if ($type === 'inventory') {
+            return $this->inventoryIndex($request);
+        }
+
         return $this->packagedIndex($request, $type);
     }
 
@@ -84,6 +88,43 @@ class OperationsController extends Controller
         return redirect()->route('customers.index')->with('status', 'Customer record saved.');
     }
 
+    private function inventoryIndex(Request $request): View
+    {
+        $filters = $request->validate([
+            'tab' => ['nullable', 'in:stock,batches,movements'],
+            'batch' => ['nullable', 'string', 'max:80'],
+            'from' => ['nullable', 'date_format:Y-m-d'],
+            'to' => ['nullable', 'date_format:Y-m-d', ...($request->filled('from') ? ['after_or_equal:from'] : [])],
+        ]);
+        $tab = $filters['tab'] ?? 'stock';
+        $batchCode = trim($filters['batch'] ?? '');
+        $rows = null;
+
+        if ($tab === 'batches') {
+            $rows = ProductionBatch::query()->with('product')
+                ->when($batchCode !== '', fn ($query) => $query->where('batch_code', 'like', '%'.$batchCode.'%'))
+                ->when(! empty($filters['from']), fn ($query) => $query->whereDate('produced_on', '>=', $filters['from']))
+                ->when(! empty($filters['to']), fn ($query) => $query->whereDate('produced_on', '<=', $filters['to']))
+                ->orderByDesc('produced_on')->orderByDesc('id')->paginate(20)->withQueryString();
+        } elseif ($tab === 'movements') {
+            $rows = StockMovement::query()->with('batch.product')
+                ->when($batchCode !== '', fn ($query) => $query->whereHas('batch', fn ($batchQuery) => $batchQuery->where('batch_code', 'like', '%'.$batchCode.'%')))
+                ->when(! empty($filters['from']), fn ($query) => $query->whereDate('created_at', '>=', $filters['from']))
+                ->when(! empty($filters['to']), fn ($query) => $query->whereDate('created_at', '<=', $filters['to']))
+                ->orderByDesc('id')->paginate(20)->withQueryString();
+        }
+
+        $stockByProduct = DB::table('products')->leftJoin('production_batches', function ($join) {
+            $join->on('products.id', '=', 'production_batches.product_id')
+                ->where('production_batches.status', '=', 'released')
+                ->where('production_batches.expires_on', '>=', today()->toDateString());
+        })->select('products.name')->selectRaw('COALESCE(SUM(production_batches.cases_on_hand - production_batches.cases_reserved), 0) as cases')
+            ->groupBy('products.id', 'products.name')->orderBy('products.volume_ml')->get();
+        $availableCases = $stockByProduct->sum('cases');
+
+        return view('operations.inventory', compact('tab', 'filters', 'rows', 'stockByProduct', 'availableCases'));
+    }
+
     private function packagedIndex(Request $request, string $type): View
     {
         $searchKey = match ($type) {
@@ -91,7 +132,7 @@ class OperationsController extends Controller
             'sales' => 'invoice',
             default => 'batch',
         };
-        $filters = in_array($type, ['production', 'inventory', 'distribution', 'sales'], true) ? $request->validate([
+        $filters = in_array($type, ['production', 'distribution', 'sales'], true) ? $request->validate([
             $searchKey => ['nullable', 'string', 'max:80'],
             'from' => ['nullable', 'date_format:Y-m-d'],
             'to' => ['nullable', 'date_format:Y-m-d', ...($request->filled('from') ? ['after_or_equal:from'] : [])],
@@ -108,19 +149,6 @@ class OperationsController extends Controller
             }
             if (! empty($filters['to'])) {
                 $productionQuery->whereDate('produced_on', '<=', $filters['to']);
-            }
-        }
-        $movementQuery = StockMovement::query();
-        if ($type === 'inventory') {
-            $batchCode = trim($filters['batch'] ?? '');
-            if ($batchCode !== '') {
-                $movementQuery->whereHas('batch', fn ($query) => $query->where('batch_code', 'like', '%'.$batchCode.'%'));
-            }
-            if (! empty($filters['from'])) {
-                $movementQuery->whereDate('created_at', '>=', $filters['from']);
-            }
-            if (! empty($filters['to'])) {
-                $movementQuery->whereDate('created_at', '<=', $filters['to']);
             }
         }
         $dispatchQuery = Dispatch::query();
@@ -154,7 +182,6 @@ class OperationsController extends Controller
         }
         $rows = match ($type) {
             'production' => (clone $productionQuery)->with('product')->orderByDesc('produced_on')->orderByDesc('id')->paginate(20)->withQueryString(),
-            'inventory' => $movementQuery->with('batch.product')->orderByDesc('id')->paginate(20)->withQueryString(),
             'distribution' => (clone $dispatchQuery)->with(['order.customer', 'lines'])->orderByDesc('dispatched_on')->orderByDesc('id')->paginate(20)->withQueryString(),
             'sales' => (clone $invoiceQuery)->with(['order.customer', 'order.items', 'payments'])->orderByDesc('issued_on')->orderByDesc('id')->paginate(20)->withQueryString(),
             default => abort(404),
@@ -162,25 +189,16 @@ class OperationsController extends Controller
 
         $summary = match ($type) {
             'production' => ['label' => 'Cases produced', 'value' => (clone $productionQuery)->sum('cases_produced'), 'suffix' => 'cases'],
-            'inventory' => ['label' => 'Available saleable stock', 'value' => ProductionBatch::where('status', 'released')->whereDate('expires_on', '>=', today())->selectRaw('COALESCE(SUM(cases_on_hand - cases_reserved), 0) as total')->value('total'), 'suffix' => 'cases'],
             'distribution' => ['label' => 'Cases dispatched', 'value' => DB::table('dispatch_lines')->whereIn('dispatch_id', (clone $dispatchQuery)->select('id'))->sum('cases'), 'suffix' => 'cases'],
             'sales' => ['label' => 'Invoiced sales', 'value' => (clone $invoiceQuery)->sum('amount'), 'suffix' => 'KSh'],
         };
 
-        $stockByProduct = $type === 'inventory'
-            ? DB::table('products')->leftJoin('production_batches', function ($join) {
-                $join->on('products.id', '=', 'production_batches.product_id')
-                    ->where('production_batches.status', '=', 'released')
-                    ->where('production_batches.expires_on', '>=', today()->toDateString());
-            })->select('products.name')->selectRaw('COALESCE(SUM(production_batches.cases_on_hand - production_batches.cases_reserved), 0) as cases')->groupBy('products.id', 'products.name')->orderBy('products.volume_ml')->get()
-            : collect();
-
-        return view('operations.packaged-index', compact('type', 'rows', 'summary', 'stockByProduct', 'filters'));
+        return view('operations.packaged-index', compact('type', 'rows', 'summary', 'filters'));
     }
 
     private function authorizeType(Request $request, string $type): void
     {
-        $roles = ['production' => ['administrator', 'manager', 'production_staff'], 'inventory' => ['administrator', 'manager', 'inventory_staff'], 'distribution' => ['administrator', 'manager', 'distribution_staff'], 'sales' => ['administrator', 'manager', 'sales_staff'], 'customers' => ['administrator', 'manager', 'sales_staff']];
+        $roles = ['production' => ['administrator', 'manager', 'production_staff'], 'inventory' => ['administrator', 'manager', 'inventory_staff', 'production_staff'], 'distribution' => ['administrator', 'manager', 'distribution_staff'], 'sales' => ['administrator', 'manager', 'sales_staff'], 'customers' => ['administrator', 'manager', 'sales_staff']];
         abort_unless(isset($roles[$type]) && $request->user()->hasRole(...$roles[$type]), 403);
     }
 }

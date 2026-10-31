@@ -15,12 +15,9 @@ use Illuminate\View\View;
 
 class PackagedProductionController extends Controller
 {
-    public function index(): View
+    public function index(): RedirectResponse
     {
-        return view('packaged.batches', [
-            'products' => Product::query()->orderBy('volume_ml')->get(),
-            'batches' => ProductionBatch::query()->with('product')->orderByDesc('produced_on')->orderByDesc('id')->paginate(20),
-        ]);
+        return redirect()->route('inventory.index', ['tab' => 'batches']);
     }
 
     public function create(): View
@@ -81,7 +78,7 @@ class PackagedProductionController extends Controller
         ]);
         $service->createBatch($data, $request->user()->user_id);
 
-        return redirect()->route('packaged.batches.index')->with('status', 'Batch recorded on quality hold.');
+        return redirect()->route('inventory.index', ['tab' => 'batches'])->with('status', 'Batch recorded on quality hold.');
     }
 
     public function release(Request $request, ProductionBatch $batch, PackagedWaterService $service): RedirectResponse
@@ -114,16 +111,5 @@ class PackagedProductionController extends Controller
         $service->recallBatch($batch, $request->user()->user_id, $data['reason']);
 
         return back()->with('status', 'Batch recalled. Affected open orders returned to draft for reallocation.');
-    }
-
-    public function updatePrice(Request $request, Product $product, AuditTrail $auditTrail): RedirectResponse
-    {
-        abort_unless($request->user()->hasRole('administrator', 'manager'), 403);
-        $data = $request->validate(['default_price_per_case' => ['required', 'numeric', 'gt:0']]);
-        $before = $product->default_price_per_case;
-        $product->update($data);
-        $auditTrail->record('product.price_changed', $product, $request->user()->user_id, ['price' => $before], ['price' => $product->default_price_per_case]);
-
-        return back()->with('status', 'Default case price updated.');
     }
 }

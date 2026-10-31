@@ -18,15 +18,15 @@
     <nav>
         <a class="side-link {{ request()->routeIs('dashboard') ? 'active' : '' }}" href="{{ route('dashboard') }}"><i class="bi bi-grid-1x2"></i>Overview</a>
         <a class="side-link {{ request()->routeIs('production.*') ? 'active' : '' }}" href="{{ route('production.index') }}"><i class="bi bi-droplet"></i>Production</a>
-        <a class="side-link {{ request()->routeIs('inventory.*') ? 'active' : '' }}" href="{{ route('inventory.index') }}"><i class="bi bi-box-seam"></i>Inventory</a>
+        @if (auth()->user()->hasRole('administrator', 'manager', 'production_staff', 'inventory_staff'))<a class="side-link {{ request()->routeIs('inventory.*', 'packaged.batches.*') ? 'active' : '' }}" href="{{ route('inventory.index') }}"><i class="bi bi-box-seam"></i>Inventory</a>@endif
         <a class="side-link {{ request()->routeIs('distribution.*') ? 'active' : '' }}" href="{{ route('distribution.index') }}"><i class="bi bi-truck"></i>Distribution</a>
         <a class="side-link {{ request()->routeIs('sales.*') ? 'active' : '' }}" href="{{ route('sales.index') }}"><i class="bi bi-receipt"></i>Sales</a>
     </nav>
     <div class="nav-heading">PACKAGED WATER</div>
     <nav>
         @if (auth()->user()->hasRole('administrator', 'manager', 'sales_staff'))<a class="side-link {{ request()->routeIs('customers.*') ? 'active' : '' }}" href="{{ route('customers.index') }}"><i class="bi bi-people"></i>Customers</a>@endif
-        @if (auth()->user()->hasRole('administrator', 'manager', 'production_staff', 'inventory_staff'))<a class="side-link {{ request()->routeIs('packaged.batches.*') ? 'active' : '' }}" href="{{ route('packaged.batches.index') }}"><i class="bi bi-boxes"></i>Batches &amp; quality</a>@endif
         @if (auth()->user()->hasRole('administrator', 'manager'))<a class="side-link {{ request()->routeIs('packaged.manufacturing-settings.*') ? 'active' : '' }}" href="{{ route('packaged.manufacturing-settings.index') }}"><i class="bi bi-gear"></i>Manufacturing settings</a>@endif
+        @if (auth()->user()->hasRole('administrator', 'manager'))<a class="side-link {{ request()->routeIs('packaged.pricing.*') ? 'active' : '' }}" href="{{ route('packaged.pricing.index') }}"><i class="bi bi-tags"></i>Products &amp; pricing</a>@endif
         @if (auth()->user()->hasRole('administrator', 'manager', 'sales_staff', 'distribution_staff'))<a class="side-link {{ request()->routeIs('packaged.orders.*') ? 'active' : '' }}" href="{{ route('packaged.orders.index') }}"><i class="bi bi-bag-check"></i>Customer orders</a>@endif
         @if (auth()->user()->hasRole('administrator', 'manager', 'auditor'))<a class="side-link {{ request()->routeIs('packaged.forecasts.*') ? 'active' : '' }}" href="{{ route('packaged.forecasts.index') }}"><i class="bi bi-stars"></i>Production planning</a><a class="side-link {{ request()->routeIs('packaged.reports.*') ? 'active' : '' }}" href="{{ route('packaged.reports.index') }}"><i class="bi bi-cash-stack"></i>Profit &amp; expiry</a>@endif
     </nav>
