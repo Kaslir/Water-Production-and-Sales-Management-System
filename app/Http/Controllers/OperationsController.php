@@ -18,12 +18,46 @@ class OperationsController extends Controller
     {
         $this->authorizeType($request, $type);
         if ($type === 'customers') {
-            $rows = Customer::query()->latest()->paginate(12);
+            $filters = $request->validate(['q' => ['nullable', 'string', 'max:255']]);
+            $search = trim($filters['q'] ?? '');
+            $rows = Customer::query()
+                ->when($search !== '', function ($query) use ($search) {
+                    $query->where(function ($query) use ($search) {
+                        $query->where('name', 'like', '%'.$search.'%')
+                            ->orWhere('phone_number', 'like', '%'.$search.'%')
+                            ->orWhere('email', 'like', '%'.$search.'%')
+                            ->orWhere('contact_person', 'like', '%'.$search.'%');
+                    });
+                })
+                ->latest()->paginate(12)->withQueryString();
 
-            return view('operations.index', compact('type', 'rows'));
+            return view('operations.index', compact('type', 'rows', 'search'));
         }
 
         return $this->packagedIndex($request, $type);
+    }
+
+    public function customerShow(Request $request, Customer $customer): View
+    {
+        $this->authorizeType($request, 'customers');
+        $orders = $customer->orders()->with(['items', 'invoice'])
+            ->orderByDesc('ordered_on')->orderByDesc('id')->paginate(15);
+        $orderCount = $customer->orders()->count();
+        $invoiced = (float) DB::table('invoices')
+            ->join('sales_orders', 'invoices.sales_order_id', '=', 'sales_orders.id')
+            ->where('sales_orders.customer_id', $customer->customer_id)->sum('invoices.amount');
+        $credits = (float) DB::table('sales_returns')
+            ->join('invoices', 'sales_returns.invoice_id', '=', 'invoices.id')
+            ->join('sales_orders', 'invoices.sales_order_id', '=', 'sales_orders.id')
+            ->where('sales_orders.customer_id', $customer->customer_id)->sum('sales_returns.credit_amount');
+        $cashCollected = (float) DB::table('payments')
+            ->join('invoices', 'payments.invoice_id', '=', 'invoices.id')
+            ->join('sales_orders', 'invoices.sales_order_id', '=', 'sales_orders.id')
+            ->where('sales_orders.customer_id', $customer->customer_id)->sum('payments.amount');
+        $netInvoiced = $invoiced - $credits;
+        $balanceDue = $netInvoiced - $cashCollected;
+
+        return view('operations.customer-show', compact('customer', 'orders', 'orderCount', 'netInvoiced', 'cashCollected', 'balanceDue'));
     }
 
     public function create(Request $request, string $type): View

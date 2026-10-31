@@ -112,6 +112,8 @@ Route::middleware(['auth', 'active', DailyAlertScan::class])->group(function () 
     Route::get('/distribution', [OperationsController::class, 'index'])->defaults('type', 'distribution')->name('distribution.index');
     Route::get('/sales', [OperationsController::class, 'index'])->defaults('type', 'sales')->name('sales.index');
     Route::get('/customers', [OperationsController::class, 'index'])->defaults('type', 'customers')->name('customers.index');
+    Route::get('/customers/{customer}', [OperationsController::class, 'customerShow'])
+        ->whereNumber('customer')->middleware('role:administrator,manager,sales_staff')->name('customers.show');
 
     Route::get('/{type}/create', [OperationsController::class, 'create'])
         ->whereIn('type', ['customers'])->name('operations.create');
