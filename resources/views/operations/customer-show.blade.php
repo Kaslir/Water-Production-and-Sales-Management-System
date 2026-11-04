@@ -21,7 +21,7 @@
     <div class="col-md-3"><div class="metric"><span class="metric-label">CASH COLLECTED</span><span class="metric-value">KSh {{ number_format($cashCollected, 2) }}</span></div></div>
     <div class="col-md-3"><div class="metric"><span class="metric-label">BALANCE DUE</span><span class="metric-value">KSh {{ number_format($balanceDue, 2) }}</span></div></div>
 </div>
-<p class="tiny">Balance due is net invoiced value after credits and payments. A negative amount means credit is owed to the customer.</p>
+<p class="tiny">Balance due is the sum of unpaid invoice balances. Customer credits awaiting refund: KSh {{ number_format($customerCreditDue, 2) }}. Refunds paid: KSh {{ number_format($refundsPaid, 2) }}. These amounts are kept separate from receivables.</p>
 <div class="panel p-0 overflow-hidden">
     <div class="px-3 py-3 border-bottom d-flex justify-content-between"><strong class="small">Order history</strong><span class="tiny">{{ number_format($orderCount) }} orders</span></div>
     <div class="table-responsive"><table class="table table-hover align-middle mb-0">

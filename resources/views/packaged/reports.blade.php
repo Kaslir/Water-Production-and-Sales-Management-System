@@ -51,7 +51,7 @@
             <div class="small text-uppercase fw-semibold text-muted">Outstanding Payments</div>
             <div class="small text-muted mb-3">All invoices, not limited to selected period</div>
             <div class="fs-4 fw-bold mt-auto">KSh {{ number_format($outstanding, 2) }}</div>
-            @if($outstanding < 0)<div class="small text-muted mt-1">Negative balance means customer credit is due.</div>@endif
+            <div class="small text-muted mt-1">Customer credits awaiting refund: KSh {{ number_format($customerCreditDue, 2) }}</div>
         </div>
     </div>
 </div>
@@ -70,9 +70,18 @@
         <div class="col-lg-6 ps-lg-3">
             <div class="d-flex justify-content-between gap-3 border-bottom py-2"><span>Other operating expense</span><strong>KSh {{ number_format($operatingExpenses, 2) }}</strong></div>
             <div class="d-flex justify-content-between gap-3 border-bottom py-2"><span>Expiry and disposal loss</span><strong>KSh {{ number_format($disposalLoss, 2) }}</strong></div>
+            <div class="d-flex justify-content-between gap-3 border-bottom py-2"><span>Physical stock-count shortage loss</span><strong>KSh {{ number_format($stockCountLoss, 2) }}</strong></div>
             <div class="d-flex justify-content-between gap-3 border-bottom py-2"><span>Cash collected during period</span><strong>KSh {{ number_format($cashCollected, 2) }}</strong></div>
+            <div class="d-flex justify-content-between gap-3 border-bottom py-2"><span>Customer refunds paid</span><strong>KSh {{ number_format($refundsPaid, 2) }}</strong></div>
+            <div class="d-flex justify-content-between gap-3 border-bottom py-2"><span>Actual cost variance for batches with a closeout</span><strong>KSh {{ number_format($actualCostVariance, 2) }}</strong></div>
         </div>
     </div>
+    <p class="small text-muted mt-2 mb-0">Actual cost variance is shown for review and is not included again in estimated profit. Refunds change cash and receivables; return credits already reduce net sales.</p>
+    @if(auth()->user()->hasRole('administrator','manager') && $expenses->isNotEmpty())
+    <details class="mt-3"><summary>Recorded operating expenses and corrections</summary>
+        @foreach($expenses as $expense)<div class="border-top py-2">{{ $expense->expense_date->format('d M Y') }} · {{ $expense->category }} · KSh {{ number_format($expense->amount, 2) }} @if($expense->reversed_at)<span class="badge bg-secondary">Reversed</span> {{ $expense->reversal_reason }}@else<form class="d-flex gap-2 mt-2" method="post" action="{{ route('packaged.expenses.reverse', $expense) }}">@csrf<input class="form-control" name="reason" placeholder="Correction reason" required><button class="btn btn-outline-danger" onclick="return confirm('Reverse this expense?')">Reverse</button></form>@endif</div>@endforeach
+    </details>
+    @endif
 </section>
 
 <section class="panel mb-3" aria-labelledby="stock-expiry-heading">
@@ -124,7 +133,7 @@
                     <thead><tr><th>Invoice</th><th>Customer</th><th>Issued</th><th>Amount (KSh)</th><th>Paid (KSh)</th></tr></thead>
                     <tbody>
                         @forelse($invoices as $invoice)
-                            <tr><td><a href="{{ route('packaged.orders.show', $invoice->order) }}">{{ $invoice->invoice_number }}</a></td><td>{{ $invoice->order->customer->name }}</td><td>{{ $invoice->issued_on->format('d M Y') }}</td><td>{{ number_format($invoice->amount, 2) }}</td><td>{{ number_format($invoice->payments->sum('amount'), 2) }}</td></tr>
+                            <tr><td><a href="{{ route('packaged.orders.show', $invoice->order) }}">{{ $invoice->invoice_number }}</a></td><td>{{ $invoice->order->customer->name }}</td><td>{{ $invoice->issued_on->format('d M Y') }}</td><td>{{ number_format($invoice->amount, 2) }}</td><td>{{ number_format($invoice->activePayments->sum('amount'), 2) }}</td></tr>
                         @empty
                             <tr><td colspan="5" class="text-center text-muted py-4">No invoices were issued in the selected period.</td></tr>
                         @endforelse

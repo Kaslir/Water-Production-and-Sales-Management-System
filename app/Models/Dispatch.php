@@ -21,7 +21,7 @@ class Dispatch extends Model
 
     use HasFactory;
 
-    protected $fillable = ['sales_order_id', 'dispatched_on', 'delivered_on', 'status', 'delivery_reference', 'dispatched_by'];
+    protected $fillable = ['sales_order_id', 'dispatched_on', 'delivered_on', 'status', 'delivery_reference', 'received_by', 'receipt_reference', 'dispatched_by'];
 
     protected function casts(): array
     {

@@ -14,7 +14,7 @@ class DashboardController extends Controller
     public function __invoke(): View
     {
         $data = [
-            'availableCases' => ProductionBatch::where('status', 'released')->whereDate('expires_on', '>=', today())->selectRaw('COALESCE(SUM(cases_on_hand - cases_reserved), 0) as total')->value('total'),
+            'availableCases' => ProductionBatch::where('status', 'released')->whereDate('expires_on', '>', today())->selectRaw('COALESCE(SUM(cases_on_hand - cases_reserved), 0) as total')->value('total'),
             'producedCases' => ProductionBatch::sum('cases_produced'),
             'dispatchedCases' => DispatchLine::sum('cases'),
             'revenue' => Invoice::sum('amount'),
@@ -24,7 +24,7 @@ class DashboardController extends Controller
             'productStock' => DB::table('products')->leftJoin('production_batches', function ($join) {
                 $join->on('products.id', '=', 'production_batches.product_id')
                     ->where('production_batches.status', '=', 'released')
-                    ->where('production_batches.expires_on', '>=', today()->toDateString());
+                    ->where('production_batches.expires_on', '>', today()->toDateString());
             })->select('products.name')->selectRaw('COALESCE(SUM(production_batches.cases_on_hand - production_batches.cases_reserved), 0) as cases')->groupBy('products.id', 'products.name')->orderBy('products.volume_ml')->get(),
         ];
 

@@ -34,7 +34,7 @@ class ProductForecastController extends Controller
 
                 return $rows->filter(fn ($row) => $row->origin_date->toDateString() === $latestOrigin);
             });
-        $latestOrderDate = SalesOrder::max('ordered_on');
+        $latestOrderDate = SalesOrder::query()->whereIn('status', ['confirmed', 'dispatched', 'delivered', 'invoiced', 'paid'])->max('ordered_on');
         $stock = ProductionBatch::query()->where('status', 'released')->whereDate('expires_on', '>', today())->get()->groupBy('product_id')->map(fn ($batches) => $batches->sum(fn ($batch) => $batch->cases_on_hand - $batch->cases_reserved));
         $planning = [];
         foreach ($latestForecasts as $productId => $forecasts) {
@@ -54,7 +54,7 @@ class ProductForecastController extends Controller
             ->map(function ($forecast) {
                 $weekStart = CarbonImmutable::parse($forecast->origin_date)->addDay();
                 $weekEnd = $weekStart->addDays(6);
-                $hasWeeklyOrders = SalesOrder::query()->where('status', '!=', 'cancelled')
+                $hasWeeklyOrders = SalesOrder::query()->whereIn('status', ['confirmed', 'dispatched', 'delivered', 'invoiced', 'paid'])
                     ->whereDate('ordered_on', '>=', $weekStart->toDateString())
                     ->whereDate('ordered_on', '<=', $weekEnd->toDateString())->exists();
                 if (! $hasWeeklyOrders) {
@@ -63,7 +63,7 @@ class ProductForecastController extends Controller
                 $actualCases = (int) DB::table('sales_order_items')
                     ->join('sales_orders', 'sales_order_items.sales_order_id', '=', 'sales_orders.id')
                     ->where('sales_order_items.product_id', $forecast->product_id)
-                    ->where('sales_orders.status', '!=', 'cancelled')
+                    ->whereIn('sales_orders.status', ['confirmed', 'dispatched', 'delivered', 'invoiced', 'paid'])
                     ->whereDate('sales_orders.ordered_on', '>=', $weekStart->toDateString())
                     ->whereDate('sales_orders.ordered_on', '<=', $weekEnd->toDateString())
                     ->sum('sales_order_items.cases_ordered');

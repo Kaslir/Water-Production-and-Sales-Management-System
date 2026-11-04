@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\BatchDisposal;
 use App\Models\BatchReservation;
+use App\Models\CustomerRefund;
 use App\Models\Dispatch;
 use App\Models\DispatchLine;
 use App\Models\Invoice;
@@ -16,6 +17,7 @@ use App\Models\SalesOrder;
 use App\Models\SalesOrderItem;
 use App\Models\SalesReturn;
 use App\Models\StockMovement;
+use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -54,6 +56,10 @@ class PackagedWaterService
             if ($plan) {
                 $this->require($plan->plan_status === 'planned' && $plan->forecast->product_id === (int) $data['product_id'], 'The selected production plan is not active for this product.');
                 $this->require($plan->planned_for->toDateString() === $data['produced_on'] && $plan->approved_cases - $plan->cases_completed >= (int) $data['cases_produced'], 'This batch exceeds the remaining approved plan or the plan date does not match.');
+            } else {
+                $actor = User::findOrFail($actorId);
+                $this->require($actor->hasRole('administrator', 'manager'), 'A manager must authorise production outside an approved plan.');
+                $this->require(filled($data['unplanned_reason'] ?? null), 'Explain why this batch is being produced outside an approved plan.');
             }
             $costFields = ['water_treatment_cost', 'bottle_cost', 'inbound_transport_cost', 'cap_label_cost', 'labour_cost', 'electricity_cost', 'other_production_cost'];
             $totalCost = round(array_sum(array_map(fn (string $field): float => (float) ($data[$field] ?? 0), $costFields)), 2);
@@ -67,6 +73,11 @@ class PackagedWaterService
                 'cases_produced' => $data['cases_produced'],
                 'cases_on_hand' => $data['cases_produced'],
                 'status' => 'quality_hold',
+                'water_source_reference' => $data['water_source_reference'] ?? null,
+                'water_input_litres' => $data['water_input_litres'] ?? null,
+                'treatment_log_reference' => $data['treatment_log_reference'] ?? null,
+                'unplanned_reason' => $plan ? null : $data['unplanned_reason'],
+                'unplanned_authorized_by' => $plan ? null : $actorId,
                 'water_treatment_cost' => $data['water_treatment_cost'] ?? 0,
                 'bottle_cost' => $data['bottle_cost'] ?? 0,
                 'inbound_transport_cost' => $data['inbound_transport_cost'] ?? 0,
@@ -86,6 +97,9 @@ class PackagedWaterService
                 }
             }
             $this->auditTrail->record('batch.created', $batch, $actorId, [], ['cases' => $batch->cases_produced, 'cost' => $totalCost]);
+            if (! $plan) {
+                $this->auditTrail->record('batch.unplanned_authorized', $batch, $actorId, [], ['cases' => $batch->cases_produced], $data['unplanned_reason']);
+            }
             $this->alerts->publish('batch:quality:'.$batch->id, 'quality', 'warning', 'Batch needs quality review', $batch->batch_code.' is on quality hold and cannot be sold yet.', 'batch', $batch->id, ['administrator', 'manager', 'inventory_staff']);
             if ($plan && $plan->fresh()->plan_status === 'completed') {
                 $this->alerts->resolve('plan:approved:'.$plan->id);
@@ -95,15 +109,15 @@ class PackagedWaterService
         });
     }
 
-    public function releaseBatch(ProductionBatch $batch, int $actorId, string $notes, int $rejectedCases = 0): void
+    public function releaseBatch(ProductionBatch $batch, int $actorId, string $notes, int $rejectedCases = 0, array $qualityData = []): void
     {
-        DB::transaction(function () use ($batch, $actorId, $notes, $rejectedCases): void {
+        DB::transaction(function () use ($batch, $actorId, $notes, $rejectedCases, $qualityData): void {
             $batch = ProductionBatch::query()->lockForUpdate()->findOrFail($batch->id);
             $this->require($batch->status === 'quality_hold', 'Only a batch on quality hold can be released.');
             $this->require($batch->expires_on->gt(today()), 'An expired batch cannot be released.');
             $this->require($rejectedCases >= 0 && $rejectedCases < $batch->cases_on_hand, 'At least one saleable case must remain after quality rejection.');
             $saleableCases = $batch->cases_on_hand - $rejectedCases;
-            $batch->update(['status' => 'released', 'quality_notes' => $notes, 'quality_rejected_cases' => $rejectedCases, 'cases_on_hand' => $saleableCases, 'cost_per_case' => round((float) $batch->total_cost / $saleableCases, 4), 'released_by' => $actorId, 'released_at' => now()]);
+            $batch->update(['status' => 'released', 'quality_notes' => $notes, 'quality_rejected_cases' => $rejectedCases, 'cases_on_hand' => $saleableCases, 'cost_per_case' => round((float) $batch->total_cost / $saleableCases, 4), 'released_by' => $actorId, 'released_at' => now(), 'quality_tested_on' => $qualityData['quality_tested_on'] ?? null, 'quality_evidence_reference' => $qualityData['quality_evidence_reference'] ?? null, 'quality_ph' => $qualityData['quality_ph'] ?? null, 'quality_turbidity_ntu' => $qualityData['quality_turbidity_ntu'] ?? null, 'microbiological_result' => $qualityData['microbiological_result'] ?? null]);
             if ($rejectedCases > 0) {
                 StockMovement::create(['production_batch_id' => $batch->id, 'signed_cases' => -$rejectedCases, 'reason' => 'quality_rejection', 'reference_type' => 'ProductionBatch', 'reference_id' => $batch->id, 'performed_by' => $actorId, 'notes' => $notes]);
             }
@@ -184,18 +198,21 @@ class PackagedWaterService
                 'order_number' => 'ORD-'.Str::upper(Str::random(12)),
                 'customer_id' => $data['customer_id'],
                 'ordered_on' => today(),
+                'requested_delivery_on' => $data['requested_delivery_on'] ?? today(),
                 'status' => 'draft',
                 'delivery_address' => $data['delivery_address'],
                 'discount' => $discount,
                 'delivery_cost' => $data['delivery_cost'] ?? 0,
                 'total_amount' => round($subtotal - $discount, 2),
+                'price_override_reason' => $data['price_override_reason'] ?? null,
+                'data_origin' => 'genuine',
                 'notes' => $data['notes'] ?? null,
                 'created_by' => $actorId,
             ]);
             foreach ($data['items'] as $item) {
                 $order->items()->create(['product_id' => $item['product_id'], 'cases_ordered' => $item['cases_ordered'], 'price_per_case' => $item['price_per_case'], 'line_total' => round($item['cases_ordered'] * $item['price_per_case'], 2)]);
             }
-            $this->auditTrail->record('order.created', $order, $actorId, [], ['amount' => $order->total_amount]);
+            $this->auditTrail->record('order.created', $order, $actorId, [], ['amount' => $order->total_amount, 'discount' => $discount], $order->price_override_reason);
 
             return $order;
         });
@@ -208,7 +225,8 @@ class PackagedWaterService
             $this->require($order->status === 'draft', 'Only draft orders can be confirmed.');
             foreach ($order->items as $item) {
                 $needed = $item->cases_ordered;
-                $batches = ProductionBatch::query()->where('product_id', $item->product_id)->where('status', 'released')->whereDate('expires_on', '>', today())->where('cases_on_hand', '>', 0)->orderBy('expires_on')->orderBy('id')->lockForUpdate()->get();
+                $usableThrough = $order->requested_delivery_on && $order->requested_delivery_on->gt(today()) ? $order->requested_delivery_on : today();
+                $batches = ProductionBatch::query()->where('product_id', $item->product_id)->where('status', 'released')->whereDate('expires_on', '>', $usableThrough)->where('cases_on_hand', '>', 0)->orderBy('expires_on')->orderBy('id')->lockForUpdate()->get();
                 foreach ($batches as $batch) {
                     $available = $batch->cases_on_hand - $batch->cases_reserved;
                     $take = min($needed, $available);
@@ -258,7 +276,8 @@ class PackagedWaterService
                 $this->require($item->reservations->sum('cases_reserved') === $item->cases_ordered, 'Order reservation is incomplete.');
                 foreach ($item->reservations as $reservation) {
                     $batch = ProductionBatch::query()->lockForUpdate()->findOrFail($reservation->production_batch_id);
-                    $this->require($batch->status === 'released' && $batch->expires_on->gt(today()) && $batch->cases_on_hand >= $reservation->cases_reserved, 'A reserved batch is no longer eligible for dispatch.');
+                    $usableThrough = $order->requested_delivery_on && $order->requested_delivery_on->gt(today()) ? $order->requested_delivery_on : today();
+                    $this->require($batch->status === 'released' && $batch->expires_on->gt($usableThrough) && $batch->cases_on_hand >= $reservation->cases_reserved, 'A reserved batch is no longer eligible for dispatch.');
                     DispatchLine::create(['dispatch_id' => $dispatch->id, 'sales_order_item_id' => $item->id, 'production_batch_id' => $batch->id, 'cases' => $reservation->cases_reserved, 'cost_per_case' => $batch->cost_per_case]);
                     $batch->decrement('cases_on_hand', $reservation->cases_reserved);
                     $batch->decrement('cases_reserved', $reservation->cases_reserved);
@@ -275,14 +294,14 @@ class PackagedWaterService
         });
     }
 
-    public function deliverOrder(SalesOrder $order, int $actorId): void
+    public function deliverOrder(SalesOrder $order, int $actorId, array $receipt = []): void
     {
-        DB::transaction(function () use ($order, $actorId): void {
+        DB::transaction(function () use ($order, $actorId, $receipt): void {
             $order = SalesOrder::query()->with('dispatch')->lockForUpdate()->findOrFail($order->id);
             $this->require($order->status === 'dispatched' && $order->dispatch !== null, 'The order has not been dispatched.');
-            $order->dispatch->update(['status' => 'delivered', 'delivered_on' => today()]);
+            $order->dispatch->update(['status' => 'delivered', 'delivered_on' => today(), 'received_by' => $receipt['received_by'] ?? null, 'receipt_reference' => $receipt['receipt_reference'] ?? null]);
             $order->update(['status' => 'delivered']);
-            $this->auditTrail->record('order.delivered', $order, $actorId, ['status' => 'dispatched'], ['status' => 'delivered']);
+            $this->auditTrail->record('order.delivered', $order, $actorId, ['status' => 'dispatched'], ['status' => 'delivered', 'received_by' => $receipt['received_by'] ?? null, 'receipt_reference' => $receipt['receipt_reference'] ?? null]);
             $this->alerts->resolve('order:delivery:'.$order->id);
             $this->alerts->publish('order:invoice:'.$order->id, 'order', 'warning', 'Delivered order needs invoice', $order->order_number.' has been delivered and can now be invoiced.', 'order', $order->id, ['administrator', 'manager', 'sales_staff']);
         });
@@ -305,8 +324,8 @@ class PackagedWaterService
     public function recordPayment(Invoice $invoice, array $data, int $actorId): Payment
     {
         return DB::transaction(function () use ($invoice, $data, $actorId): Payment {
-            $invoice = Invoice::query()->with(['payments', 'returns'])->lockForUpdate()->findOrFail($invoice->id);
-            $remaining = round((float) $invoice->amount - (float) $invoice->returns->sum('credit_amount') - (float) $invoice->payments->sum('amount'), 2);
+            $invoice = Invoice::query()->with(['activePayments', 'returns'])->lockForUpdate()->findOrFail($invoice->id);
+            $remaining = round((float) $invoice->amount - (float) $invoice->returns->sum('credit_amount') - (float) $invoice->activePayments->sum('amount'), 2);
             $this->require($data['amount'] > 0 && $data['amount'] <= $remaining, 'Payment exceeds the outstanding invoice balance.');
             $payment = Payment::create(['invoice_id' => $invoice->id, 'amount' => $data['amount'], 'paid_on' => today(), 'method' => $data['method'], 'reference' => $data['reference'] ?? null, 'recorded_by' => $actorId]);
             $paid = round($remaining - $data['amount'], 2) <= 0;
@@ -323,7 +342,7 @@ class PackagedWaterService
     public function recordReturn(Invoice $invoice, DispatchLine $line, int $cases, string $reason, int $actorId): SalesReturn
     {
         return DB::transaction(function () use ($invoice, $line, $cases, $reason, $actorId): SalesReturn {
-            $invoice = Invoice::query()->with(['order.items', 'payments', 'returns'])->lockForUpdate()->findOrFail($invoice->id);
+            $invoice = Invoice::query()->with(['order.items', 'activePayments', 'returns'])->lockForUpdate()->findOrFail($invoice->id);
             $line = DispatchLine::query()->lockForUpdate()->findOrFail($line->id);
             $this->require(Dispatch::query()->whereKey($line->dispatch_id)->where('sales_order_id', $invoice->sales_order_id)->exists(), 'This batch dispatch does not belong to the invoice.');
             $alreadyReturned = (int) SalesReturn::query()->where('dispatch_line_id', $line->id)->sum('cases');
@@ -334,11 +353,44 @@ class PackagedWaterService
             $creditAmount = round($cases * (float) $item->price_per_case * (1 - $discountRate), 2);
             $this->require((float) $invoice->returns->sum('credit_amount') + $creditAmount <= (float) $invoice->amount + 0.01, 'Credits exceed the invoice amount.');
             $return = SalesReturn::create(['invoice_id' => $invoice->id, 'dispatch_line_id' => $line->id, 'cases' => $cases, 'credit_amount' => $creditAmount, 'returned_on' => today(), 'disposition' => 'destroyed_on_receipt', 'reason' => $reason, 'recorded_by' => $actorId]);
-            $netDue = round((float) $invoice->amount - (float) $invoice->returns->sum('credit_amount') - $creditAmount - (float) $invoice->payments->sum('amount'), 2);
-            $invoice->update(['status' => $netDue < 0 ? 'credit_due' : ($netDue == 0.0 ? 'settled' : ((float) $invoice->payments->sum('amount') > 0 ? 'part_paid' : 'credited'))]);
+            $netDue = round((float) $invoice->amount - (float) $invoice->returns->sum('credit_amount') - $creditAmount - (float) $invoice->activePayments->sum('amount'), 2);
+            $invoice->update(['status' => $netDue < 0 ? 'credit_due' : ($netDue == 0.0 ? 'settled' : ((float) $invoice->activePayments->sum('amount') > 0 ? 'part_paid' : 'credited'))]);
             $this->auditTrail->record('invoice.return_credited', $return, $actorId, [], ['cases' => $cases, 'credit_amount' => $creditAmount, 'disposition' => 'destroyed_on_receipt'], $reason);
 
             return $return;
+        });
+    }
+
+    public function recordRefund(Invoice $invoice, array $data, int $actorId): CustomerRefund
+    {
+        return DB::transaction(function () use ($invoice, $data, $actorId): CustomerRefund {
+            $invoice = Invoice::query()->with(['activePayments', 'returns', 'refunds'])->lockForUpdate()->findOrFail($invoice->id);
+            $creditDue = round((float) $invoice->activePayments->sum('amount') - ((float) $invoice->amount - (float) $invoice->returns->sum('credit_amount')) - (float) $invoice->refunds->sum('amount'), 2);
+            $this->require($data['amount'] > 0 && $data['amount'] <= $creditDue, 'Refund exceeds the customer credit due.');
+            $refund = CustomerRefund::create($data + ['invoice_id' => $invoice->id, 'refunded_on' => today(), 'recorded_by' => $actorId]);
+            if (round($creditDue - $data['amount'], 2) <= 0) {
+                $invoice->update(['status' => 'settled']);
+            }
+            $this->auditTrail->record('invoice.refund_recorded', $refund, $actorId, [], ['amount' => $refund->amount, 'reference' => $refund->reference], $refund->reason);
+
+            return $refund;
+        });
+    }
+
+    public function reversePayment(Payment $payment, string $reason, int $actorId): void
+    {
+        DB::transaction(function () use ($payment, $reason, $actorId): void {
+            $invoice = Invoice::query()->with(['activePayments', 'returns', 'refunds'])->lockForUpdate()->findOrFail($payment->invoice_id);
+            $payment = Payment::query()->lockForUpdate()->findOrFail($payment->id);
+            $this->require($payment->invoice_id === $invoice->id && $payment->reversed_at === null, 'Payment has already been reversed or is no longer linked to this invoice.');
+            $this->require($invoice->refunds->isEmpty(), 'A customer refund has been recorded. Reconcile that refund before reversing a payment.');
+            $payment->update(['reversed_at' => now(), 'reversed_by' => $actorId, 'reversal_reason' => $reason]);
+            $remaining = round((float) $invoice->amount - (float) $invoice->returns->sum('credit_amount') - (float) $invoice->activePayments->where('id', '!=', $payment->id)->sum('amount'), 2);
+            $invoice->update(['status' => $remaining < 0 ? 'credit_due' : ($remaining == 0.0 ? 'settled' : ((float) $invoice->activePayments->where('id', '!=', $payment->id)->sum('amount') > 0 ? 'part_paid' : 'unpaid'))]);
+            if ($remaining > 0) {
+                $invoice->order()->update(['status' => 'invoiced']);
+            }
+            $this->auditTrail->record('invoice.payment_reversed', $payment, $actorId, ['amount' => $payment->amount], ['reversed_at' => $payment->reversed_at], $reason);
         });
     }
 

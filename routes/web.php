@@ -17,6 +17,7 @@ use App\Http\Controllers\ProductPricingController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\SalesOrderController;
+use App\Http\Controllers\StockCountController;
 use App\Http\Controllers\TechnicalEventController;
 use App\Http\Controllers\UserManagementController;
 use App\Http\Middleware\DailyAlertScan;
@@ -61,6 +62,9 @@ Route::middleware(['auth', 'active', DailyAlertScan::class])->group(function () 
         Route::get('/packaged/batches', [PackagedProductionController::class, 'index'])->name('packaged.batches.index');
         Route::get('/packaged/batches/{batch}', [PackagedProductionController::class, 'show'])->whereNumber('batch')->name('packaged.batches.show');
     });
+    Route::middleware('role:administrator,manager,inventory_staff')->group(function () {
+        Route::post('/packaged/batches/{batch}/stock-counts', [StockCountController::class, 'store'])->name('packaged.batches.stock-counts.store');
+    });
     Route::middleware('role:administrator,manager,production_staff')->group(function () {
         Route::get('/packaged/batches/create', [PackagedProductionController::class, 'create'])->name('packaged.batches.create');
         Route::post('/packaged/batches', [PackagedProductionController::class, 'store'])->name('packaged.batches.store');
@@ -73,6 +77,8 @@ Route::middleware(['auth', 'active', DailyAlertScan::class])->group(function () 
         Route::post('/packaged/batches/{batch}/quarantine', [PackagedProductionController::class, 'quarantine'])->name('packaged.batches.quarantine');
         Route::post('/packaged/batches/{batch}/dispose', [PackagedProductionController::class, 'dispose'])->name('packaged.batches.dispose');
         Route::post('/packaged/batches/{batch}/recall', [PackagedProductionController::class, 'recall'])->name('packaged.batches.recall');
+        Route::post('/packaged/batches/{batch}/actual-cost', [PackagedProductionController::class, 'recordActualCost'])->name('packaged.batches.actual-cost');
+        Route::post('/packaged/stock-counts/{count}/decision', [StockCountController::class, 'decide'])->name('packaged.stock-counts.decision');
         Route::post('/packaged/products/{product}/price', [ProductPricingController::class, 'update'])->name('packaged.products.price');
     });
     Route::middleware('role:administrator,manager,sales_staff,distribution_staff')->group(function () {
@@ -82,6 +88,7 @@ Route::middleware(['auth', 'active', DailyAlertScan::class])->group(function () 
     Route::middleware('role:administrator,manager,sales_staff')->group(function () {
         Route::get('/packaged/orders/create', [SalesOrderController::class, 'create'])->name('packaged.orders.create');
         Route::post('/packaged/orders', [SalesOrderController::class, 'store'])->name('packaged.orders.store');
+        Route::post('/packaged/orders/close-day', [SalesOrderController::class, 'closeDay'])->name('packaged.orders.close-day');
         Route::post('/packaged/orders/{order}/confirm', [SalesOrderController::class, 'confirm'])->name('packaged.orders.confirm');
         Route::post('/packaged/orders/{order}/cancel', [SalesOrderController::class, 'cancel'])->name('packaged.orders.cancel');
         Route::post('/packaged/orders/{order}/invoice', [SalesOrderController::class, 'invoice'])->name('packaged.orders.invoice');
@@ -97,9 +104,12 @@ Route::middleware(['auth', 'active', DailyAlertScan::class])->group(function () 
         Route::get('/packaged/forecasts', [ProductForecastController::class, 'index'])->name('packaged.forecasts.index');
     });
     Route::middleware('role:administrator,manager')->group(function () {
+        Route::post('/packaged/invoices/{invoice}/refunds', [SalesOrderController::class, 'refund'])->name('packaged.invoices.refund');
+        Route::post('/packaged/payments/{payment}/reverse', [SalesOrderController::class, 'reversePayment'])->name('packaged.payments.reverse');
         Route::post('/packaged/forecasts/run', [ProductForecastController::class, 'run'])->name('packaged.forecasts.run');
         Route::post('/packaged/forecasts/{forecast}/decision', [ProductForecastController::class, 'decision'])->name('packaged.forecasts.decision');
         Route::post('/packaged/expenses', [PackagedReportController::class, 'expense'])->name('packaged.expenses.store');
+        Route::post('/packaged/expenses/{expense}/reverse', [PackagedReportController::class, 'reverseExpense'])->name('packaged.expenses.reverse');
     });
     Route::middleware('role:administrator,auditor')->group(function () {
         Route::get('/logs', [LogController::class, 'index'])->name('logs.index');

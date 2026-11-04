@@ -24,6 +24,16 @@ class Invoice extends Model
         return $this->hasMany(Payment::class);
     }
 
+    public function activePayments(): HasMany
+    {
+        return $this->hasMany(Payment::class)->whereNull('reversed_at');
+    }
+
+    public function refunds(): HasMany
+    {
+        return $this->hasMany(CustomerRefund::class);
+    }
+
     use HasFactory;
 
     protected $fillable = ['sales_order_id', 'invoice_number', 'issued_on', 'amount', 'status'];

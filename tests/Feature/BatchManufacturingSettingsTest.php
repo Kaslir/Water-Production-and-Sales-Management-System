@@ -43,14 +43,21 @@ class BatchManufacturingSettingsTest extends TestCase
 
         $this->actingAs($manager)->post(route('packaged.manufacturing-settings.store', $product), $this->settings())->assertRedirect();
         $this->actingAs($staff)->get(route('packaged.batches.create'))->assertOk()->assertDontSee('Approved production plan (optional)')->assertDontSee('Total cost');
-        $this->actingAs($staff)->post(route('packaged.batches.store'), [
+        $batchData = [
             'product_id' => $product->id,
             'produced_on' => today()->toDateString(),
             'cases_produced' => 10,
+            'water_source_reference' => 'MUNICIPAL-METER-001',
+            'water_input_litres' => 130,
+            'treatment_log_reference' => 'TREATMENT-001',
+            'unplanned_reason' => 'Manager approved a trial production run',
             'expires_on' => today()->addYears(10)->toDateString(),
             'bottle_cost' => 0,
             'batch_code' => 'USER-OVERRIDE',
-        ])->assertRedirect(route('inventory.index', ['tab' => 'batches']));
+        ];
+        $this->actingAs($staff)->post(route('packaged.batches.store'), $batchData)->assertSessionHasErrors('workflow');
+        $this->assertDatabaseCount('production_batches', 0);
+        $this->actingAs($manager)->post(route('packaged.batches.store'), $batchData)->assertRedirect(route('inventory.index', ['tab' => 'batches']));
 
         $batch = ProductionBatch::firstOrFail();
         $this->assertSame(today()->addDays(120)->toDateString(), $batch->expires_on->toDateString());
@@ -59,6 +66,7 @@ class BatchManufacturingSettingsTest extends TestCase
         $this->assertSame('quality_hold', $batch->status);
         $this->assertNotSame('USER-OVERRIDE', $batch->batch_code);
         $this->assertNotNull($batch->manufacturing_policy_id);
+        $this->assertSame($manager->user_id, $batch->unplanned_authorized_by);
     }
 
     public function test_production_staff_cannot_approve_settings_and_unconfigured_products_cannot_be_recorded(): void
@@ -71,6 +79,9 @@ class BatchManufacturingSettingsTest extends TestCase
             'product_id' => $product->id,
             'produced_on' => today()->toDateString(),
             'cases_produced' => 4,
+            'water_source_reference' => 'MUNICIPAL-METER-001',
+            'water_input_litres' => 50,
+            'treatment_log_reference' => 'TREATMENT-001',
         ])->assertSessionHasErrors('product_id');
         $this->assertDatabaseCount('production_batches', 0);
     }
@@ -101,6 +112,9 @@ class BatchManufacturingSettingsTest extends TestCase
             'product_id' => $product->id,
             'produced_on' => today()->toDateString(),
             'cases_produced' => 10,
+            'water_source_reference' => 'MUNICIPAL-METER-001',
+            'water_input_litres' => 210,
+            'treatment_log_reference' => 'TREATMENT-001',
         ])->assertRedirect(route('inventory.index', ['tab' => 'batches']));
 
         $this->assertSame($plan->id, ProductionBatch::firstOrFail()->production_forecast_decision_id);

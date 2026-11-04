@@ -105,9 +105,10 @@
                                         Remaining expected orders: {{ number_format($plan['remaining_forecast_cases'], 0) }} cases.
                                         Safety allowance: {{ number_format($plan['buffer_cases']) }} cases.
                                         Confirmed orders: {{ number_format($plan['confirmed_cases']) }} cases.
+                                        Confirmed cases without a reservation: {{ number_format($plan['unreserved_confirmed_cases']) }} cases.
                                         Available stock for this period: {{ number_format($plan['eligible_stock']) }} cases.
                                         Unfinished approved production: {{ number_format($plan['planned_cases']) }} cases.
-                                        The recommendation covers the larger of remaining expected orders plus the safety allowance or confirmed orders, then subtracts available stock and unfinished approved production. It cannot be below zero.
+                                        Reserved confirmed cases are excluded from available stock. The recommendation adds any confirmed cases without a reservation to remaining expected orders and the safety allowance, then subtracts available unreserved stock and unfinished approved production. It cannot be below zero.
                                     </p>
                                 </details>
                             @endif
@@ -141,15 +142,15 @@
         <details class="panel mt-3">
             <summary class="fw-semibold">Forecast Accuracy and Model Comparison</summary>
             <div class="pt-3">
-                <p class="small text-muted">Random Forest is the model used for the current forecasts. Gradient Boosting was compared during development but is not used for these estimates. MAE shows the average size of past errors. Bias shows whether forecasts tended to be too high (positive) or too low (negative). These scores come from historical evaluation.</p>
+                <p class="small text-muted">Random Forest is the model used for the current forecasts. Gradient Boosting was compared during development but is not used for these estimates. MAE shows the average size of past errors. Bias shows whether forecasts tended to be too high (positive) or too low (negative). Historical evaluation on synthetic orders demonstrates the method but cannot prove accuracy for a real producer. New genuine orders should be evaluated after a complete future week without changing the saved forecast.</p>
                 <div class="table-responsive">
                     <table class="table align-middle">
-                        <thead><tr><th>Product</th><th>Period</th><th>Model</th><th>MAE (cases)</th><th>Bias (cases)</th></tr></thead>
+                        <thead><tr><th>Product</th><th>Period</th><th>Model</th><th>Data source</th><th>MAE (cases)</th><th>Bias (cases)</th></tr></thead>
                         <tbody>
                             @forelse($accuracyRows as $forecast)
-                                <tr><td>{{ $products->firstWhere('id', $forecast->product_id)?->name ?? 'Unknown product' }}</td><td>{{ $forecast->horizon_days }} days</td><td>Random Forest</td><td>{{ number_format($forecast->mae_cases, 2) }}</td><td>{{ number_format($forecast->bias_cases, 2) }}</td></tr>
+                                <tr><td>{{ $products->firstWhere('id', $forecast->product_id)?->name ?? 'Unknown product' }}</td><td>{{ $forecast->horizon_days }} days</td><td>Random Forest</td><td>{{ ucfirst(str_replace('_', ' ', $forecast->evaluation['data_origin'] ?? 'unknown')) }}</td><td>{{ number_format($forecast->mae_cases, 2) }}</td><td>{{ number_format($forecast->bias_cases, 2) }}</td></tr>
                             @empty
-                                <tr><td colspan="5">No model evaluation is available yet.</td></tr>
+                                <tr><td colspan="6">No model evaluation is available yet.</td></tr>
                             @endforelse
                         </tbody>
                     </table>

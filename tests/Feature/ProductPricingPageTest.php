@@ -31,6 +31,7 @@ class ProductPricingPageTest extends TestCase
         $this->actingAs($manager)->post(route('packaged.orders.store'), [
             'customer_id' => $customer->customer_id,
             'delivery_address' => 'Nairobi',
+            'requested_delivery_on' => today()->toDateString(),
             'delivery_cost' => 0,
             'items' => [['product_id' => $product->id, 'cases_ordered' => 2, 'price_per_case' => 620]],
         ])->assertRedirect();

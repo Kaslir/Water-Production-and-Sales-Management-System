@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\User;
 use App\Services\AuditTrail;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 class UserManagementController extends Controller
@@ -55,7 +56,16 @@ class UserManagementController extends Controller
             unset($data['password']);
         }
         $before = $user->only(['name', 'email', 'role', 'is_active']);
+        $emailChanged = $user->email !== $data['email'];
+        $accessChanged = $user->role !== $data['role'] || (bool) $user->is_active !== (bool) $data['is_active'];
+        $passwordChanged = array_key_exists('password', $data);
+        if ($emailChanged) {
+            $user->email_verified_at = null;
+        }
         $user->update($data);
+        if ($emailChanged || $accessChanged || $passwordChanged) {
+            DB::table('sessions')->where('user_id', $user->user_id)->delete();
+        }
         $auditTrail->record('user.updated', $user, $request->user()->user_id, $before, $user->only(['name', 'email', 'role', 'is_active']));
 
         return redirect()->route('users.index')->with('status', 'User account updated successfully.');

@@ -81,12 +81,15 @@ try {
 
     $databaseReady = Test-Port -TargetHost $databaseHost -Port $databasePort
     $appPortReady = Test-Port -TargetHost '127.0.0.1' -Port 8000
+    $artisanPath = Join-Path $projectRoot 'artisan'
+    $schedulerProcess = @(Get-CimInstance Win32_Process -Filter "Name = 'php.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like "*$artisanPath*" -and $_.CommandLine -like '*schedule:work*' })
     if ($CheckOnly) {
         Write-Host "Project: $projectRoot"
         Write-Host "PHP: $php"
         Write-Host "Python: $python"
         Write-Host "Database $databaseHost`:$databasePort listening: $databaseReady"
         Write-Host "Application port 8000 listening: $appPortReady"
+        Write-Host "Alert scheduler running: $($schedulerProcess.Count -gt 0)"
         exit 0
     }
 
@@ -104,6 +107,12 @@ try {
         }
     } else {
         Write-Host 'MySQL is already running.'
+    }
+
+    Write-Host 'Applying pending database migrations...'
+    $migrationOutput = & $php $artisanPath migrate --force --no-interaction 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw "Database migration failed: $($migrationOutput | Out-String)"
     }
 
     if ($appPortReady) {
@@ -133,6 +142,13 @@ try {
         if (-not $ready) {
             throw "AquaTrack did not load. Check $errorLog and storage\logs\laravel.log."
         }
+    }
+
+    if ($schedulerProcess.Count -eq 0) {
+        $logFolder = Join-Path $projectRoot 'storage\logs'
+        $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+        Write-Host 'Starting the daily alert scheduler...'
+        Start-Process -FilePath $php -ArgumentList ('"' + $artisanPath + '" schedule:work') -WorkingDirectory $projectRoot -WindowStyle Hidden -RedirectStandardOutput (Join-Path $logFolder "scheduler-$stamp-output.log") -RedirectStandardError (Join-Path $logFolder "scheduler-$stamp-error.log") | Out-Null
     }
 
     if (-not $NoBrowser) {

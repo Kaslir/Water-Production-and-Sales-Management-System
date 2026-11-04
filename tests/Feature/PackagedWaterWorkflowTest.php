@@ -34,6 +34,7 @@ class PackagedWaterWorkflowTest extends TestCase
             'produced_on' => today()->subDay()->toDateString(),
             'expires_on' => today()->addDays($expiryDays)->toDateString(),
             'cases_produced' => $cases,
+            'unplanned_reason' => 'Manager-authorised test batch',
             'water_treatment_cost' => 100,
             'bottle_cost' => 200,
             'cap_label_cost' => 50,
@@ -319,6 +320,7 @@ class PackagedWaterWorkflowTest extends TestCase
 
         $recommendation = app(ProductForecastService::class)->recommendation($forecast);
         $this->assertSame(80, $recommendation['confirmed_cases']);
-        $this->assertSame(80, $recommendation['recommended_cases']);
+        $this->assertSame(80, $recommendation['unreserved_confirmed_cases']);
+        $this->assertSame(130, $recommendation['recommended_cases']);
     }
 }

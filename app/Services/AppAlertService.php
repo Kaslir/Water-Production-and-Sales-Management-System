@@ -78,17 +78,16 @@ class AppAlertService
                 return;
             }
 
-            $this->scanExpiry($today, $settings->activated_at);
-            $this->scanShortages($today, $settings->activated_at);
+            $this->scanExpiry($today);
+            $this->scanShortages($today);
             DB::table('app_alert_settings')->where('id', 1)->update(['last_scan_on' => $today->toDateString()]);
         });
     }
 
-    private function scanExpiry(CarbonImmutable $today, string $activatedAt): void
+    private function scanExpiry(CarbonImmutable $today): void
     {
         $activeKeys = [];
         $batches = ProductionBatch::query()->with('product')
-            ->where('created_at', '>=', $activatedAt)
             ->where('status', 'released')
             ->where('cases_on_hand', '>', 0)
             ->whereDate('expires_on', '<=', $today->addDays(30)->toDateString())
@@ -108,12 +107,12 @@ class AppAlertService
         $this->resolveInactive('expiry', $activeKeys);
     }
 
-    private function scanShortages(CarbonImmutable $today, string $activatedAt): void
+    private function scanShortages(CarbonImmutable $today): void
     {
         $activeKeys = [];
+        $weekOrigin = $today->subDays($today->dayOfWeek === 0 ? 7 : $today->dayOfWeek);
         $forecasts = ProductForecast::query()->with('product')
-            ->where('created_at', '>=', $activatedAt)
-            ->whereDate('origin_date', $today->toDateString())
+            ->whereDate('origin_date', $weekOrigin->toDateString())
             ->where('horizon_days', 7)
             ->where('method', 'random_forest')
             ->orderByDesc('id')->get()

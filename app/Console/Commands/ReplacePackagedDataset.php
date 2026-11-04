@@ -127,7 +127,7 @@ class ReplacePackagedDataset extends Command
             'sales' => $this->syntheticActor('sales_staff'),
             'distribution' => $this->syntheticActor('distribution_staff'),
         ];
-        foreach (['production_forecast_decisions', 'product_forecasts', 'sales_returns', 'payments', 'invoices', 'dispatch_lines', 'dispatches', 'batch_reservations', 'sales_order_items', 'sales_orders', 'batch_disposals', 'stock_movements', 'production_batches', 'operating_expenses', 'reports', 'forecasts', 'inventory_transactions', 'sales', 'distributions', 'productions', 'inventories', 'customers'] as $table) {
+        foreach (['daily_order_closures', 'batch_actual_costs', 'stock_counts', 'customer_refunds', 'production_forecast_decisions', 'product_forecasts', 'sales_returns', 'payments', 'invoices', 'dispatch_lines', 'dispatches', 'batch_reservations', 'sales_order_items', 'sales_orders', 'batch_disposals', 'stock_movements', 'production_batches', 'operating_expenses', 'reports', 'forecasts', 'inventory_transactions', 'sales', 'distributions', 'productions', 'inventories', 'customers'] as $table) {
             DB::table($table)->delete();
         }
         $now = now();
@@ -176,7 +176,7 @@ class ReplacePackagedDataset extends Command
             'id' => (int) $row['order_id'], 'order_number' => $row['order_number'], 'customer_id' => (int) $row['customer_id'],
             'ordered_on' => $row['ordered_on'], 'status' => $row['status'], 'delivery_address' => $row['delivery_address'],
             'discount' => $row['discount_ksh'], 'delivery_cost' => $row['delivery_cost_ksh'],
-            'total_amount' => $row['total_amount_ksh'], 'notes' => 'Entirely synthetic dataset',
+            'total_amount' => $row['total_amount_ksh'], 'notes' => 'Entirely synthetic dataset', 'data_origin' => 'synthetic',
             'created_by' => $actors['sales'], 'created_at' => $stamp($row['ordered_on']), 'updated_at' => $now,
         ], $data['sales_orders']));
         $this->insert('sales_order_items', array_map(fn ($row) => [

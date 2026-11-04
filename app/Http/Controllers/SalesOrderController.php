@@ -5,12 +5,15 @@ namespace App\Http\Controllers;
 use App\Models\Customer;
 use App\Models\DispatchLine;
 use App\Models\Invoice;
+use App\Models\Payment;
 use App\Models\Product;
 use App\Models\SalesOrder;
 use App\Services\AppAlertService;
+use App\Services\AuditTrail;
 use App\Services\PackagedWaterService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
@@ -35,14 +38,28 @@ class SalesOrderController extends Controller
         $data = $request->validate([
             'customer_id' => ['required', 'exists:customers,customer_id'],
             'delivery_address' => ['required', 'string', 'max:255'],
-            'discount' => ['nullable', 'numeric', 'min:0'],
-            'delivery_cost' => ['required', 'numeric', 'min:0'],
+            'requested_delivery_on' => ['required', 'date', 'after_or_equal:today'],
+            'discount' => ['nullable', 'numeric', 'min:0', 'decimal:0,2'],
+            'delivery_cost' => ['required', 'numeric', 'min:0', 'decimal:0,2'],
+            'price_override_reason' => ['nullable', 'string', 'max:500'],
             'notes' => ['nullable', 'string', 'max:2000'],
             'items' => ['required', 'array', 'min:1'],
             'items.*.product_id' => ['required', 'distinct', 'exists:products,id'],
             'items.*.cases_ordered' => ['required', 'integer', 'min:1'],
-            'items.*.price_per_case' => ['required', 'numeric', 'gt:0'],
+            'items.*.price_per_case' => ['required', 'numeric', 'gt:0', 'decimal:0,2'],
         ]);
+        $products = Product::query()->whereIn('id', collect($data['items'])->pluck('product_id'))->where('is_active', true)->get()->keyBy('id');
+        $hasPriceOverride = collect($data['items'])->contains(function (array $item) use ($products): bool {
+            $product = $products->get($item['product_id']);
+
+            return ! $product || (int) round((float) $item['price_per_case'] * 100) !== (int) round((float) $product->default_price_per_case * 100);
+        });
+        if (($hasPriceOverride || (float) ($data['discount'] ?? 0) > 0) && ! $request->user()->hasRole('administrator', 'manager')) {
+            throw ValidationException::withMessages(['price_override_reason' => 'Only a manager can approve a changed selling price or discount.']);
+        }
+        if (($hasPriceOverride || (float) ($data['discount'] ?? 0) > 0) && blank($data['price_override_reason'] ?? null)) {
+            throw ValidationException::withMessages(['price_override_reason' => 'Give a reason for the changed price or discount.']);
+        }
         $order = $service->createOrder($data, $request->user()->user_id);
 
         return redirect()->route('packaged.orders.show', $order)->with('status', 'Order saved as draft.');
@@ -50,7 +67,7 @@ class SalesOrderController extends Controller
 
     public function show(SalesOrder $order): View
     {
-        $order->load(['customer', 'items.product', 'items.reservations.batch', 'dispatch.lines.batch', 'invoice.payments', 'invoice.returns']);
+        $order->load(['customer', 'items.product', 'items.reservations.batch', 'dispatch.lines.batch', 'invoice.payments', 'invoice.activePayments', 'invoice.refunds', 'invoice.returns']);
 
         return view('packaged.order-show', compact('order'));
     }
@@ -89,7 +106,8 @@ class SalesOrderController extends Controller
 
     public function deliver(Request $request, SalesOrder $order, PackagedWaterService $service): RedirectResponse
     {
-        $service->deliverOrder($order, $request->user()->user_id);
+        $data = $request->validate(['received_by' => ['required', 'string', 'max:255'], 'receipt_reference' => ['required', 'string', 'max:255']]);
+        $service->deliverOrder($order, $request->user()->user_id, $data);
 
         return back()->with('status', 'Delivery confirmed.');
     }
@@ -115,5 +133,34 @@ class SalesOrderController extends Controller
         $service->recordReturn($invoice, DispatchLine::findOrFail($data['dispatch_line_id']), $data['cases'], $data['reason'], $request->user()->user_id);
 
         return back()->with('status', 'Customer return credited and marked destroyed on receipt; no saleable stock was restored.');
+    }
+
+    public function refund(Request $request, Invoice $invoice, PackagedWaterService $service): RedirectResponse
+    {
+        $data = $request->validate(['amount' => ['required', 'numeric', 'gt:0', 'decimal:0,2'], 'method' => ['required', 'string', 'max:80'], 'reference' => ['required', 'string', 'max:120'], 'reason' => ['required', 'string', 'max:500']]);
+        $service->recordRefund($invoice, $data, $request->user()->user_id);
+
+        return back()->with('status', 'Customer refund recorded and linked to this invoice.');
+    }
+
+    public function reversePayment(Request $request, Payment $payment, PackagedWaterService $service): RedirectResponse
+    {
+        $data = $request->validate(['reason' => ['required', 'string', 'max:500']]);
+        $service->reversePayment($payment, $data['reason'], $request->user()->user_id);
+
+        return back()->with('status', 'Payment reversed. The original record remains in the audit trail.');
+    }
+
+    public function closeDay(Request $request, AuditTrail $auditTrail): RedirectResponse
+    {
+        $data = $request->validate(['order_day' => ['required', 'date', 'before_or_equal:today']]);
+        $hasOrders = SalesOrder::query()->whereIn('status', ['confirmed', 'dispatched', 'delivered', 'invoiced', 'paid'])->whereDate('ordered_on', $data['order_day'])->exists();
+        if ($hasOrders) {
+            throw ValidationException::withMessages(['order_day' => 'Accepted orders are already recorded for this date.']);
+        }
+        DB::table('daily_order_closures')->updateOrInsert(['order_day' => $data['order_day']], ['recorded_by' => $request->user()->user_id, 'created_at' => now(), 'updated_at' => now()]);
+        $auditTrail->record('sales.zero_order_day_confirmed', null, $request->user()->user_id, [], ['order_day' => $data['order_day']]);
+
+        return back()->with('status', 'Zero-order day recorded for forecasting.');
     }
 }

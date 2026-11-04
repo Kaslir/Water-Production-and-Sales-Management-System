@@ -58,11 +58,18 @@ class OperationsController extends Controller
         $cashCollected = (float) DB::table('payments')
             ->join('invoices', 'payments.invoice_id', '=', 'invoices.id')
             ->join('sales_orders', 'invoices.sales_order_id', '=', 'sales_orders.id')
+            ->whereNull('payments.reversed_at')
             ->where('sales_orders.customer_id', $customer->customer_id)->sum('payments.amount');
+        $refundsPaid = (float) DB::table('customer_refunds')
+            ->join('invoices', 'customer_refunds.invoice_id', '=', 'invoices.id')
+            ->join('sales_orders', 'invoices.sales_order_id', '=', 'sales_orders.id')
+            ->where('sales_orders.customer_id', $customer->customer_id)->sum('customer_refunds.amount');
         $netInvoiced = $invoiced - $credits;
-        $balanceDue = $netInvoiced - $cashCollected;
+        $invoiceBalances = Invoice::query()->whereHas('order', fn ($query) => $query->where('customer_id', $customer->customer_id))->with(['returns', 'activePayments', 'refunds'])->get();
+        $balanceDue = (float) $invoiceBalances->sum(fn (Invoice $invoice) => max(0, (float) $invoice->amount - (float) $invoice->returns->sum('credit_amount') - (float) $invoice->activePayments->sum('amount') + (float) $invoice->refunds->sum('amount')));
+        $customerCreditDue = (float) $invoiceBalances->sum(fn (Invoice $invoice) => max(0, (float) $invoice->activePayments->sum('amount') - ((float) $invoice->amount - (float) $invoice->returns->sum('credit_amount')) - (float) $invoice->refunds->sum('amount')));
 
-        return view('operations.customer-show', compact('customer', 'orders', 'orderCount', 'netInvoiced', 'cashCollected', 'balanceDue'));
+        return view('operations.customer-show', compact('customer', 'orders', 'orderCount', 'netInvoiced', 'cashCollected', 'refundsPaid', 'balanceDue', 'customerCreditDue'));
     }
 
     public function create(Request $request, string $type): View
@@ -120,13 +127,13 @@ class OperationsController extends Controller
         $stockByProduct = DB::table('products')->leftJoin('production_batches', function ($join) {
             $join->on('products.id', '=', 'production_batches.product_id')
                 ->where('production_batches.status', '=', 'released')
-                ->where('production_batches.expires_on', '>=', today()->toDateString());
+                ->where('production_batches.expires_on', '>', today()->toDateString());
         })->select('products.name')->selectRaw('COALESCE(SUM(production_batches.cases_on_hand - production_batches.cases_reserved), 0) as cases')
             ->groupBy('products.id', 'products.name')->orderBy('products.volume_ml')->get();
         $availableCases = $stockByProduct->sum('cases');
         $nearExpiry = $tab === 'stock'
             ? ProductionBatch::query()->with('product')->where('status', 'released')->where('cases_on_hand', '>', 0)
-                ->whereDate('expires_on', '>=', today())->whereDate('expires_on', '<=', today()->addDays(30))
+                ->whereDate('expires_on', '>', today())->whereDate('expires_on', '<=', today()->addDays(30))
                 ->orderBy('expires_on')->get()
             : collect();
 
@@ -191,7 +198,7 @@ class OperationsController extends Controller
         $rows = match ($type) {
             'production' => (clone $productionQuery)->with('product')->orderByDesc('produced_on')->orderByDesc('id')->paginate(20)->withQueryString(),
             'distribution' => (clone $dispatchQuery)->with(['order.customer', 'lines'])->orderByDesc('dispatched_on')->orderByDesc('id')->paginate(20)->withQueryString(),
-            'sales' => (clone $invoiceQuery)->with(['order.customer', 'order.items', 'payments'])->orderByDesc('issued_on')->orderByDesc('id')->paginate(20)->withQueryString(),
+            'sales' => (clone $invoiceQuery)->with(['order.customer', 'order.items', 'activePayments'])->orderByDesc('issued_on')->orderByDesc('id')->paginate(20)->withQueryString(),
             default => abort(404),
         };
 

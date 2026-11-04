@@ -25,31 +25,39 @@ class ProductForecastService
             ->where('product_id', $productId)
             ->where('status', 'released')
             ->whereDate('expires_on', '>', $windowEnd->toDateString())
-            ->sum('cases_on_hand');
+            ->selectRaw('COALESCE(SUM(cases_on_hand - cases_reserved), 0) available')->value('available');
         $confirmedCases = (int) DB::table('sales_order_items')
             ->join('sales_orders', 'sales_order_items.sales_order_id', '=', 'sales_orders.id')
             ->where('sales_order_items.product_id', $productId)
             ->where('sales_orders.status', 'confirmed')
+            ->where(fn ($query) => $query->whereNull('sales_orders.requested_delivery_on')->orWhereBetween('sales_orders.requested_delivery_on', [$windowStart->toDateString(), $windowEnd->toDateString()]))
             ->sum('sales_order_items.cases_ordered');
+        $reservedConfirmedCases = (int) DB::table('batch_reservations')
+            ->join('sales_order_items', 'batch_reservations.sales_order_item_id', '=', 'sales_order_items.id')
+            ->join('sales_orders', 'sales_order_items.sales_order_id', '=', 'sales_orders.id')
+            ->where('sales_order_items.product_id', $productId)
+            ->where('sales_orders.status', 'confirmed')
+            ->where(fn ($query) => $query->whereNull('sales_orders.requested_delivery_on')->orWhereBetween('sales_orders.requested_delivery_on', [$windowStart->toDateString(), $windowEnd->toDateString()]))
+            ->sum('batch_reservations.cases_reserved');
+        $unreservedConfirmedCases = max(0, $confirmedCases - $reservedConfirmedCases);
         $recordedCases = (int) DB::table('sales_order_items')
             ->join('sales_orders', 'sales_order_items.sales_order_id', '=', 'sales_orders.id')
             ->where('sales_order_items.product_id', $productId)
-            ->where('sales_orders.status', '!=', 'cancelled')
+            ->whereIn('sales_orders.status', ['confirmed', 'dispatched', 'delivered', 'invoiced', 'paid'])
             ->whereDate('sales_orders.ordered_on', '>=', $windowStart->toDateString())
             ->whereDate('sales_orders.ordered_on', '<=', min($today->toDateString(), $windowEnd->toDateString()))
             ->sum('sales_order_items.cases_ordered');
         $remainingForecast = max(0, (float) $forecast->predicted_cases - $recordedCases);
         $bufferCases = (int) ceil(max(0, (float) $forecast->mae_cases));
-        $demandToCover = max($remainingForecast + $bufferCases, $confirmedCases);
-        $activePlan = ProductionForecastDecision::query()
+        $demandToCover = $remainingForecast + $bufferCases + $unreservedConfirmedCases;
+        $plannedCases = ProductionForecastDecision::query()
             ->whereHas('forecast', fn ($query) => $query->where('product_id', $productId))
             ->where('plan_status', 'planned')
             ->whereDate('planned_for', '>=', $today->toDateString())
             ->whereDate('planned_for', '<=', $windowEnd->toDateString())
-            ->latest('id')->first();
-        $plannedCases = $activePlan ? max(0, $activePlan->approved_cases - $activePlan->cases_completed) : 0;
+            ->get()->sum(fn (ProductionForecastDecision $plan) => max(0, $plan->approved_cases - $plan->cases_completed));
 
-        return ['eligible_stock' => $eligibleStock, 'confirmed_cases' => $confirmedCases, 'recorded_cases' => $recordedCases, 'remaining_forecast_cases' => $remainingForecast, 'buffer_cases' => $bufferCases, 'planned_cases' => $plannedCases, 'recommended_cases' => max(0, (int) ceil($demandToCover - $eligibleStock - $plannedCases))];
+        return ['eligible_stock' => $eligibleStock, 'confirmed_cases' => $confirmedCases, 'unreserved_confirmed_cases' => $unreservedConfirmedCases, 'recorded_cases' => $recordedCases, 'remaining_forecast_cases' => $remainingForecast, 'buffer_cases' => $bufferCases, 'planned_cases' => $plannedCases, 'recommended_cases' => max(0, (int) ceil($demandToCover - $eligibleStock - $plannedCases))];
     }
 
     public function run(Product $product, bool $historical = false): array
@@ -63,7 +71,7 @@ class ProductForecastService
             'daily_cases' => $prepared['daily_cases'],
             'start_date' => $prepared['start_date'],
         ], [$product->id]);
-        $this->store($product, $result, $prepared['origin_date'], $historical);
+        $this->store($product, $result, $prepared['origin_date'], $historical, $prepared['data_origin']);
 
         return $result;
     }
@@ -81,7 +89,7 @@ class ProductForecastService
                 continue;
             }
 
-            $preparedProducts[$product->id] = ['product' => $product, 'origin_date' => $prepared['origin_date']];
+            $preparedProducts[$product->id] = ['product' => $product, 'origin_date' => $prepared['origin_date'], 'data_origin' => $prepared['data_origin']];
             $payloads[$product->id] = [
                 'daily_cases' => $prepared['daily_cases'],
                 'start_date' => $prepared['start_date'],
@@ -93,7 +101,7 @@ class ProductForecastService
             foreach ($preparedProducts as $productId => $prepared) {
                 $report = $reports[$productId] ?? ['available' => false, 'reason' => 'Python did not return a forecast for this product.'];
                 if (isset($reports[$productId])) {
-                    $this->store($prepared['product'], $report, $prepared['origin_date'], $historical);
+                    $this->store($prepared['product'], $report, $prepared['origin_date'], $historical, $prepared['data_origin']);
                 }
                 $results[$productId] = $report;
             }
@@ -107,7 +115,7 @@ class ProductForecastService
         $rows = DB::table('sales_order_items')
             ->join('sales_orders', 'sales_order_items.sales_order_id', '=', 'sales_orders.id')
             ->where('sales_order_items.product_id', $product->id)
-            ->where('sales_orders.status', '!=', 'cancelled')
+            ->whereIn('sales_orders.status', ['confirmed', 'dispatched', 'delivered', 'invoiced', 'paid'])
             ->selectRaw('DATE(sales_orders.ordered_on) order_day, SUM(sales_order_items.cases_ordered) cases')
             ->groupByRaw('DATE(sales_orders.ordered_on)')
             ->orderBy('order_day')
@@ -115,6 +123,12 @@ class ProductForecastService
         if ($rows->isEmpty()) {
             return ['available' => false, 'reason' => 'No dated orders have been recorded for this product.'];
         }
+        $originTypes = DB::table('sales_order_items')
+            ->join('sales_orders', 'sales_order_items.sales_order_id', '=', 'sales_orders.id')
+            ->where('sales_order_items.product_id', $product->id)
+            ->whereIn('sales_orders.status', ['confirmed', 'dispatched', 'delivered', 'invoiced', 'paid'])
+            ->distinct()->pluck('sales_orders.data_origin')->all();
+        $dataOrigin = count($originTypes) === 1 ? $originTypes[0] : 'mixed';
         $lastOrderDate = CarbonImmutable::parse($rows->last()->order_day, 'Africa/Nairobi')->startOfDay();
         if (! $historical && $lastOrderDate->diffInDays(CarbonImmutable::today('Africa/Nairobi')) > 14) {
             return ['available' => false, 'reason' => 'The latest order is too old for a current forecast. Use the historical demonstration or record recent genuine orders.'];
@@ -128,6 +142,24 @@ class ProductForecastService
         if ($originDate->lt($date)) {
             return ['available' => false, 'reason' => 'A complete Sunday history is needed for weekly evaluation.'];
         }
+        if (! $historical) {
+            $recentStart = $originDate->subDays(13)->max($date);
+            $recordedDays = DB::table('sales_orders')
+                ->whereIn('status', ['confirmed', 'dispatched', 'delivered', 'invoiced', 'paid'])
+                ->whereDate('ordered_on', '>=', $recentStart->toDateString())
+                ->whereDate('ordered_on', '<=', $originDate->toDateString())
+                ->distinct()->pluck('ordered_on')->map(fn ($day) => CarbonImmutable::parse($day)->toDateString())->flip();
+            $closedDays = DB::table('daily_order_closures')
+                ->whereDate('order_day', '>=', $recentStart->toDateString())
+                ->whereDate('order_day', '<=', $originDate->toDateString())
+                ->pluck('order_day')->map(fn ($day) => CarbonImmutable::parse($day)->toDateString())->flip();
+            for ($reviewDay = $recentStart; $reviewDay->lte($originDate); $reviewDay = $reviewDay->addDay()) {
+                $dayKey = $reviewDay->toDateString();
+                if (! $recordedDays->has($dayKey) && ! $closedDays->has($dayKey)) {
+                    return ['available' => false, 'reason' => 'Sales records for '.$reviewDay->format('d M Y').' are not closed. Record orders or confirm that there were no orders that day.'];
+                }
+            }
+        }
         $dailyCases = [];
         while ($date->lte($originDate)) {
             $dailyCases[] = (float) ($byDate[$date->toDateString()] ?? 0);
@@ -139,6 +171,7 @@ class ProductForecastService
             'origin_date' => $originDate->toDateString(),
             'start_date' => CarbonImmutable::parse($rows->first()->order_day)->toDateString(),
             'daily_cases' => $dailyCases,
+            'data_origin' => $dataOrigin,
         ];
     }
 
@@ -165,7 +198,7 @@ class ProductForecastService
         return json_decode($process->getOutput(), true, flags: JSON_THROW_ON_ERROR);
     }
 
-    private function store(Product $product, array $result, string $originDate, bool $historical): void
+    private function store(Product $product, array $result, string $originDate, bool $historical, string $dataOrigin): void
     {
         foreach ($result as $horizon => $report) {
             if (! ($report['available'] ?? false)) {
@@ -174,7 +207,7 @@ class ProductForecastService
             foreach ($report['methods'] as $method => $values) {
                 ProductForecast::updateOrCreate(
                     ['product_id' => $product->id, 'origin_date' => $originDate, 'horizon_days' => (int) $horizon, 'method' => $method],
-                    ['predicted_cases' => $values['predicted_cases'], 'mae_cases' => $values['mae_cases'], 'bias_cases' => $values['bias_cases'], 'evaluation' => ['backtest_points' => $values['backtest_points'], 'selected' => $method === $report['best_method'], 'mode' => $historical ? 'historical_demo' : 'current', 'source' => 'recorded packaged-water orders', 'correction_cases' => $values['correction_cases'] ?? 0, 'week_start' => $report['week_start'] ?? null, 'week_end' => $report['week_end'] ?? null]]
+                    ['predicted_cases' => $values['predicted_cases'], 'mae_cases' => $values['mae_cases'], 'bias_cases' => $values['bias_cases'], 'evaluation' => ['backtest_points' => $values['backtest_points'], 'selected' => $method === $report['best_method'], 'mode' => $historical ? 'historical_demo' : 'current', 'source' => 'recorded packaged-water orders', 'data_origin' => $dataOrigin, 'correction_cases' => $values['correction_cases'] ?? 0, 'week_start' => $report['week_start'] ?? null, 'week_end' => $report['week_end'] ?? null]]
                 );
             }
         }

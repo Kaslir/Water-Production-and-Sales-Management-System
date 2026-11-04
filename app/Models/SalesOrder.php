@@ -32,10 +32,10 @@ class SalesOrder extends Model
 
     use HasFactory;
 
-    protected $fillable = ['order_number', 'customer_id', 'ordered_on', 'status', 'delivery_address', 'discount', 'delivery_cost', 'total_amount', 'notes', 'created_by'];
+    protected $fillable = ['order_number', 'customer_id', 'ordered_on', 'requested_delivery_on', 'status', 'delivery_address', 'discount', 'delivery_cost', 'total_amount', 'price_override_reason', 'data_origin', 'notes', 'created_by'];
 
     protected function casts(): array
     {
-        return ['ordered_on' => 'date', 'discount' => 'decimal:2', 'delivery_cost' => 'decimal:2', 'total_amount' => 'decimal:2'];
+        return ['ordered_on' => 'date', 'requested_delivery_on' => 'date', 'discount' => 'decimal:2', 'delivery_cost' => 'decimal:2', 'total_amount' => 'decimal:2'];
     }
 }

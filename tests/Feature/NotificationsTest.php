@@ -52,6 +52,7 @@ class NotificationsTest extends TestCase
             'produced_on' => today()->subDay()->toDateString(),
             'expires_on' => today()->addDays(5)->toDateString(),
             'cases_produced' => 10,
+            'unplanned_reason' => 'Manager-authorised test batch',
             'water_treatment_cost' => 10,
             'bottle_cost' => 10,
             'cap_label_cost' => 10,
