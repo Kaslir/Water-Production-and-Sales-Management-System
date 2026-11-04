@@ -1,8 +1,11 @@
 import math
+import json
 import unittest
 from datetime import date
+from io import StringIO
+from unittest.mock import patch
 
-from product_forecast import METHOD, forecast_horizon, forecast_weekly
+from product_forecast import METHOD, forecast_horizon, forecast_weekly, main
 
 
 class ProductForecastTests(unittest.TestCase):
@@ -33,6 +36,17 @@ class ProductForecastTests(unittest.TestCase):
     def test_weekly_forecast_rejects_partial_week(self):
         result = forecast_weekly([10.0] * 1004, date(2024, 1, 1))
         self.assertFalse(result["available"])
+
+    def test_one_request_returns_separate_results_for_products(self):
+        payload = {"products": {
+            "1": {"daily_cases": [10.0] * 1001, "start_date": "2024-01-01"},
+            "2": {"daily_cases": [10.0] * 120, "start_date": "2024-01-01"},
+        }}
+        with patch("sys.stdin", StringIO(json.dumps(payload))), patch("sys.stdout", new_callable=StringIO) as output:
+            main()
+        results = json.loads(output.getvalue())
+        self.assertTrue(results["1"]["7"]["available"])
+        self.assertFalse(results["2"]["7"]["available"])
 
 if __name__ == "__main__":
     unittest.main()

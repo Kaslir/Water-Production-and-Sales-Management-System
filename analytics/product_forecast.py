@@ -147,11 +147,21 @@ def forecast_horizon(values, horizon):
     return {"available": True, "best_method": METHOD, "methods": scores}
 
 
-def main():
-    payload = json.load(sys.stdin)
+def forecast_payload(payload):
     values = [max(0.0, float(value)) for value in payload["daily_cases"]]
     start_date = date.fromisoformat(payload["start_date"])
-    result = {"7": forecast_weekly(values, start_date), "30": forecast_horizon(values, 30)}
+    return {"7": forecast_weekly(values, start_date), "30": forecast_horizon(values, 30)}
+
+
+def main():
+    payload = json.load(sys.stdin)
+    if "products" in payload:
+        result = {
+            product_id: forecast_payload(product_payload)
+            for product_id, product_payload in payload["products"].items()
+        }
+    else:
+        result = forecast_payload(payload)
     print(json.dumps(result))
 
 

@@ -1,54 +1,198 @@
 @extends('layouts.app')
 @section('page-title', 'Production planning')
 @section('content')
+<style>
+    .forecast-period-tabs .nav-link { color: #8b1e2d; }
+    .forecast-period-tabs .nav-link.active { background: #b42332; color: #fff; }
+</style>
 @php($lastOrder = $latestOrderDate ? \Carbon\Carbon::parse($latestOrderDate) : null)
-@if($lastOrder && $lastOrder->lt(today()->subDays(14)))<div class="alert alert-warning">There are no recent orders for a current forecast. You may evaluate the historical dataset as of {{ $lastOrder->format('d M Y') }}. Those dated estimates are a demonstration, not a prediction for today.</div>@endif
+@if($lastOrder && $lastOrder->lt(today()->subDays(14)))
+    <div class="alert alert-warning">There are no recent orders for a current forecast. You may evaluate the historical dataset as of {{ $lastOrder->format('d M Y') }}. Those dated estimates are a demonstration, not a prediction for today.</div>
+@endif
+
 <div class="panel mb-3 pb-0">
-    <nav class="nav nav-tabs border-0" aria-label="Production planning sections">
+    <nav class="nav nav-tabs border-0 align-items-center" aria-label="Production planning sections">
         <a class="nav-link {{ $tab === 'forecasts' ? 'active' : '' }}" href="{{ route('packaged.forecasts.index', ['tab' => 'forecasts']) }}" @if($tab === 'forecasts') aria-current="page" @endif>Forecasts</a>
         @if(auth()->user()->hasRole('administrator', 'manager'))
             <a class="nav-link {{ $tab === 'plans' ? 'active' : '' }}" href="{{ route('packaged.forecasts.index', ['tab' => 'plans']) }}" @if($tab === 'plans') aria-current="page" @endif>Approve a current production plan</a>
         @endif
+        @if($tab === 'forecasts' && auth()->user()->hasRole('administrator', 'manager'))
+            <form class="ms-auto mb-2" method="post" action="{{ route('packaged.forecasts.run') }}" onsubmit="const button = this.querySelector('button'); button.disabled = true; button.textContent = 'Generating forecasts…';">
+                @csrf
+                <input type="hidden" name="mode" value="{{ $lastOrder && $lastOrder->lt(today()->subDays(14)) ? 'historical_demo' : 'current' }}">
+                <button class="btn btn-brand" type="submit">Generate Forecasts</button>
+            </form>
+        @endif
     </nav>
 </div>
+
 @if($tab === 'forecasts')
-<div class="row g-3">
-@foreach($products as $product)
-    @php($group = $latestForecasts[$product->id] ?? collect())
-    @php($origin = $group->first()?->origin_date)
-    @php($isCurrent = $origin && \Carbon\CarbonImmutable::parse($origin)->lt(today()) && \Carbon\CarbonImmutable::parse($origin)->addDays(7)->gte(today()) && ($group->first()?->evaluation['mode'] ?? null) === 'current')
-    <div class="col-xl-6"><div class="panel h-100">
-        <div class="d-flex justify-content-between gap-3"><div><h5>{{ $product->name }}</h5><div class="tiny">{{ $product->bottles_per_case }} bottles per case · Released stock: {{ number_format($stock[$product->id] ?? 0) }} cases</div></div>
-            @if(auth()->user()->hasRole('administrator', 'manager'))<form method="post" action="{{ route('packaged.forecasts.run') }}">@csrf<input type="hidden" name="product_id" value="{{ $product->id }}"><input type="hidden" name="mode" value="{{ $lastOrder && $lastOrder->lt(today()->subDays(14)) ? 'historical_demo' : 'current' }}"><button class="btn btn-brand btn-sm">{{ $lastOrder && $lastOrder->lt(today()->subDays(14)) ? 'Evaluate historical data' : 'Run forecast' }}</button></form>@endif
-        </div><hr>
-        @if($origin)<p class="tiny mb-2">{{ $isCurrent ? 'Current forecast' : 'Historical demonstration' }} · Model origin: {{ $origin->format('d M Y') }}</p>@endif
-        @foreach([7 => 'Monday–Sunday demand', 30 => '30-day exploratory demand'] as $days => $label)
-            @php($rows = $group->where('horizon_days', $days))
-            @php($chosen = $rows->first(fn ($row) => $row->evaluation['selected'] ?? false))
-            @php($plan = $planning[$product->id][$days] ?? null)
-            <h6>{{ $label }}</h6>
-            @if($chosen)
-                <p class="mb-1">Estimated demand: <strong>{{ number_format($chosen->predicted_cases, 0) }} cases</strong> · {{ \Carbon\CarbonImmutable::parse($origin)->addDay()->format('d M Y') }}–{{ \Carbon\CarbonImmutable::parse($origin)->addDays($days)->format('d M Y') }}</p>
-                @if($plan)<p class="tiny mb-2">{{ number_format($plan['recorded_cases']) }} cases already ordered this week; {{ number_format($plan['remaining_forecast_cases'], 0) }} forecast cases remain; planning buffer {{ number_format($plan['buffer_cases']) }} cases (one historical MAE, rounded up); {{ number_format($plan['confirmed_cases']) }} cases on confirmed orders; {{ number_format($plan['eligible_stock']) }} eligible cases in stock; {{ number_format($plan['planned_cases']) }} cases in an approved, unfinished plan. Additional suggested production: <strong>{{ number_format($plan['recommended_cases']) }} cases</strong>. The buffer affects the plan, not the forecast or its bias score.</p>
-                @elseif($isCurrent && $days === 30)<p class="tiny mb-2">The 30-day estimate is for longer-range review. Only the 7-day forecast can be approved as a production plan.</p>
-                @else<p class="tiny mb-2">This historical result is for model demonstration only. No present-day production quantity is recommended from it.</p>@endif
-                <p class="tiny mb-2">Random Forest validation: MAE {{ number_format($chosen->mae_cases, 2) }} cases; bias {{ number_format($chosen->bias_cases, 2) }} cases.</p>
-            @else<p class="tiny">No evaluated forecast for this period yet.</p>@endif
-        @endforeach
-    </div></div>
-@endforeach
-</div>
-<div class="panel mt-3"><h6>Completed current forecasts</h6><p class="tiny">When a week finishes, recorded orders are compared with the forecast saved before that week. Negative error means demand was underestimated. Historical demonstrations are excluded.</p><table class="table"><thead><tr><th>Product</th><th>Week</th><th>Forecast cases</th><th>Actual cases</th><th>Error cases</th></tr></thead><tbody>@forelse($completedEvaluations as $evaluation)<tr><td>{{ $evaluation['product'] }}</td><td>{{ $evaluation['week_start']->format('d M Y') }}–{{ $evaluation['week_end']->format('d M Y') }}</td><td>{{ number_format($evaluation['predicted_cases'], 0) }}</td><td>{{ number_format($evaluation['actual_cases']) }}</td><td>{{ number_format($evaluation['error_cases'], 1) }}</td></tr>@empty<tr><td colspan="5">No completed current forecast is available yet. Record new orders and evaluate a current week to begin this check.</td></tr>@endforelse</tbody></table></div>
+    @if(session('forecast_results'))
+        <div class="panel mb-3">
+            <strong>Forecast results</strong>
+            <ul class="mb-0 mt-2">
+                @foreach(session('forecast_results') as $result)
+                    <li class="{{ $result['success'] ? 'text-success' : 'text-danger' }}">{{ $result['product'] }}: {{ $result['message'] }}</li>
+                @endforeach
+            </ul>
+        </div>
+    @endif
+
+    <div class="panel mb-3">
+        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
+            <div>
+                <h5 class="mb-1">Customer order forecast</h5>
+                <p class="text-muted small mb-0">Choose a period to see expected orders for each bottled-water product.</p>
+            </div>
+        </div>
+        <ul class="nav nav-pills gap-2 forecast-period-tabs" id="forecast-period-tabs" role="tablist" aria-label="Forecast period">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="forecast-week-tab" type="button" role="tab" data-bs-toggle="tab" data-bs-target="#forecast-week" aria-controls="forecast-week" aria-selected="true">Next 7 days</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="forecast-month-tab" type="button" role="tab" data-bs-toggle="tab" data-bs-target="#forecast-month" aria-controls="forecast-month" aria-selected="false">Next 30 days</button>
+            </li>
+        </ul>
+    </div>
+
+    <div class="tab-content" id="forecast-period-content">
+        <div class="tab-pane fade show active" id="forecast-week" role="tabpanel" aria-labelledby="forecast-week-tab" tabindex="0">
+            <p class="small text-muted mb-3">Only this 7-day forecast can support a production-plan approval.</p>
+            <div class="row g-3">
+                @foreach($products as $product)
+                    @php($group = $latestForecasts[$product->id] ?? collect())
+                    @php($week = $group->first(fn ($row) => $row->horizon_days === 7 && ($row->evaluation['selected'] ?? false)))
+                    @php($plan = $planning[$product->id][7] ?? null)
+                    @php($availableStock = $plan['eligible_stock'] ?? ($stock[$product->id] ?? 0))
+                    <div class="col-xl-6">
+                        <div class="panel h-100">
+                            <h5 class="mb-3">{{ $product->name }}</h5>
+                            <div class="row g-2">
+                                <div class="col-sm-4">
+                                    <div class="border rounded p-3 h-100">
+                                        <div class="small text-muted mb-1">Expected customer orders</div>
+                                        <div class="fs-4 fw-bold">{{ $week ? number_format($week->predicted_cases, 0) : '—' }} <span class="fs-6 fw-normal">cases</span></div>
+                                    </div>
+                                </div>
+                                <div class="col-sm-4">
+                                    <div class="border rounded p-3 h-100">
+                                        <div class="small text-muted mb-1">Available stock</div>
+                                        <div class="fs-4 fw-bold">{{ number_format($availableStock) }} <span class="fs-6 fw-normal">cases</span></div>
+                                    </div>
+                                </div>
+                                <div class="col-sm-4">
+                                    <div class="border rounded p-3 h-100">
+                                        <div class="small text-muted mb-1">Recommended additional production</div>
+                                        <div class="fs-4 fw-bold">{{ $plan ? number_format($plan['recommended_cases']) : '—' }} <span class="fs-6 fw-normal">cases</span></div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="mt-3">
+                                @if($plan)
+                                    <span class="badge {{ $plan['recommended_cases'] > 0 ? 'text-bg-warning' : 'text-bg-success' }} fs-6 fw-normal">{{ $plan['recommended_cases'] > 0 ? 'Additional production recommended' : 'Stock sufficient' }}</span>
+                                @elseif($week)
+                                    <span class="badge text-bg-secondary fs-6 fw-normal">{{ ($week->evaluation['mode'] ?? null) === 'historical_demo' ? 'Historical forecast — no current production recommendation' : 'No current production recommendation' }}</span>
+                                @else
+                                    <span class="badge text-bg-secondary fs-6 fw-normal">Forecast not available yet</span>
+                                @endif
+                            </div>
+                            @if($plan)
+                                <details class="mt-3 border-top pt-3">
+                                    <summary class="small fw-semibold">How was this recommendation calculated?</summary>
+                                    <p class="small text-muted mt-2 mb-0">
+                                        Expected orders: {{ number_format($week->predicted_cases, 0) }} cases.
+                                        Already recorded this week: {{ number_format($plan['recorded_cases']) }} cases.
+                                        Remaining expected orders: {{ number_format($plan['remaining_forecast_cases'], 0) }} cases.
+                                        Safety allowance: {{ number_format($plan['buffer_cases']) }} cases.
+                                        Confirmed orders: {{ number_format($plan['confirmed_cases']) }} cases.
+                                        Available stock for this period: {{ number_format($plan['eligible_stock']) }} cases.
+                                        Unfinished approved production: {{ number_format($plan['planned_cases']) }} cases.
+                                        The recommendation covers the larger of remaining expected orders plus the safety allowance or confirmed orders, then subtracts available stock and unfinished approved production. It cannot be below zero.
+                                    </p>
+                                </details>
+                            @endif
+                        </div>
+                    </div>
+                @endforeach
+            </div>
+        </div>
+
+        <div class="tab-pane fade" id="forecast-month" role="tabpanel" aria-labelledby="forecast-month-tab" tabindex="0">
+            <p class="small text-muted mb-3">This longer-range view is for review only. Production-plan approval uses the 7-day forecast.</p>
+            <div class="row g-3">
+                @foreach($products as $product)
+                    @php($group = $latestForecasts[$product->id] ?? collect())
+                    @php($month = $group->first(fn ($row) => $row->horizon_days === 30 && ($row->evaluation['selected'] ?? false)))
+                    <div class="col-md-6 col-xl-3">
+                        <div class="panel h-100">
+                            <h5 class="mb-3">{{ $product->name }}</h5>
+                            <div class="small text-muted mb-1">Expected customer orders in 30 days</div>
+                            <div class="fs-3 fw-bold">{{ $month ? number_format($month->predicted_cases, 0) : '—' }} <span class="fs-6 fw-normal">cases</span></div>
+                            @unless($month)<p class="small text-muted mb-0 mt-2">Forecast not available yet.</p>@endunless
+                        </div>
+                    </div>
+                @endforeach
+            </div>
+        </div>
+    </div>
+
+    @if(auth()->user()->hasRole('administrator', 'manager', 'auditor'))
+        @php($accuracyRows = $latestForecasts->flatMap(fn ($group) => $group->filter(fn ($row) => $row->evaluation['selected'] ?? false)))
+        <details class="panel mt-3">
+            <summary class="fw-semibold">Forecast Accuracy and Model Comparison</summary>
+            <div class="pt-3">
+                <p class="small text-muted">Random Forest is the model used for the current forecasts. Gradient Boosting was compared during development but is not used for these estimates. MAE shows the average size of past errors. Bias shows whether forecasts tended to be too high (positive) or too low (negative). These scores come from historical evaluation.</p>
+                <div class="table-responsive">
+                    <table class="table align-middle">
+                        <thead><tr><th>Product</th><th>Period</th><th>Model</th><th>MAE (cases)</th><th>Bias (cases)</th></tr></thead>
+                        <tbody>
+                            @forelse($accuracyRows as $forecast)
+                                <tr><td>{{ $products->firstWhere('id', $forecast->product_id)?->name ?? 'Unknown product' }}</td><td>{{ $forecast->horizon_days }} days</td><td>Random Forest</td><td>{{ number_format($forecast->mae_cases, 2) }}</td><td>{{ number_format($forecast->bias_cases, 2) }}</td></tr>
+                            @empty
+                                <tr><td colspan="5">No model evaluation is available yet.</td></tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
+                <h6 class="mt-4">Completed current forecasts</h6>
+                <p class="small text-muted">When a week finishes, recorded orders are compared with the forecast saved before that week. Negative error means demand was underestimated. Historical demonstrations are excluded.</p>
+                <div class="table-responsive">
+                    <table class="table align-middle">
+                        <thead><tr><th>Product</th><th>Week</th><th>Forecast cases</th><th>Actual cases</th><th>Error cases</th></tr></thead>
+                        <tbody>
+                            @forelse($completedEvaluations as $evaluation)
+                                <tr><td>{{ $evaluation['product'] }}</td><td>{{ $evaluation['week_start']->format('d M Y') }}–{{ $evaluation['week_end']->format('d M Y') }}</td><td>{{ number_format($evaluation['predicted_cases'], 0) }}</td><td>{{ number_format($evaluation['actual_cases']) }}</td><td>{{ number_format($evaluation['error_cases'], 1) }}</td></tr>
+                            @empty
+                                <tr><td colspan="5">No completed current forecast is available yet. Record new orders and evaluate a current week to begin this check.</td></tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </details>
+    @endif
 @endif
+
 @if($tab === 'plans' && auth()->user()->hasRole('administrator', 'manager'))
-<div class="panel"><h6>Approve a current production plan</h6><p class="tiny">Only current forecasts can become plans. A new approval replaces the previous unfinished plan for that product. Link the resulting batch to the plan when recording production.</p>
-    @if(empty($planning))<p class="mb-3">No current forecast is ready for approval. Run a forecast from the Forecasts tab first.</p>@endif
-    @foreach($products as $product)@foreach([7] as $days)
-        @php($selected = ($latestForecasts[$product->id] ?? collect())->first(fn ($row) => $row->horizon_days == $days && ($row->evaluation['selected'] ?? false) && \Carbon\CarbonImmutable::parse($row->origin_date)->lt(today()) && \Carbon\CarbonImmutable::parse($row->origin_date)->addDays(7)->gte(today()) && ($row->evaluation['mode'] ?? null) === 'current'))
-        @php($plan = $planning[$product->id][$days] ?? null)
-        @if($selected && $plan)<form class="row g-2 align-items-end mb-3" method="post" action="{{ route('packaged.forecasts.decision', $selected) }}">@csrf<div class="col-md-3"><strong>{{ $product->name }}</strong><div class="tiny">This week · {{ number_format($plan['recommended_cases']) }} additional cases needed</div></div><div class="col-md-2"><label class="form-label">Total cases to plan</label><input class="form-control" type="number" name="approved_cases" min="0" value="{{ $plan['recommended_cases'] + $plan['planned_cases'] }}" required></div><div class="col-md-2"><label class="form-label">Planned completion</label><input class="form-control" type="date" name="planned_for" min="{{ today()->toDateString() }}" max="{{ \Carbon\CarbonImmutable::parse($selected->origin_date)->addDays(7)->toDateString() }}" value="{{ today()->toDateString() }}" required></div><div class="col-md-3"><label class="form-label">Reason if changing suggestion</label><input class="form-control" name="reason"></div><div class="col-md-2"><button class="btn btn-brand">Approve plan</button></div></form>@endif
-    @endforeach
-    @endforeach
-</div>
+    <div class="panel">
+        <h6>Approve a current production plan</h6>
+        <p class="tiny">Only current 7-day forecasts can become plans. A new approval replaces the previous unfinished plan for that product. Link the resulting batch to the plan when recording production.</p>
+        @if(empty($planning))<p class="mb-3">No current forecast is ready for approval. Run a forecast from the Forecasts tab first.</p>@endif
+        @foreach($products as $product)@foreach([7] as $days)
+            @php($selected = ($latestForecasts[$product->id] ?? collect())->first(fn ($row) => $row->horizon_days == $days && ($row->evaluation['selected'] ?? false) && \Carbon\CarbonImmutable::parse($row->origin_date)->lt(today()) && \Carbon\CarbonImmutable::parse($row->origin_date)->addDays(7)->gte(today()) && ($row->evaluation['mode'] ?? null) === 'current'))
+            @php($plan = $planning[$product->id][$days] ?? null)
+            @if($selected && $plan)
+                <form class="row g-2 align-items-end mb-3" method="post" action="{{ route('packaged.forecasts.decision', $selected) }}">
+                    @csrf
+                    <div class="col-md-3"><strong>{{ $product->name }}</strong><div class="tiny">This week · {{ number_format($plan['recommended_cases']) }} additional cases needed</div></div>
+                    <div class="col-md-2"><label class="form-label">Total cases to plan</label><input class="form-control" type="number" name="approved_cases" min="0" value="{{ $plan['recommended_cases'] + $plan['planned_cases'] }}" required></div>
+                    <div class="col-md-2"><label class="form-label">Planned completion</label><input class="form-control" type="date" name="planned_for" min="{{ today()->toDateString() }}" max="{{ \Carbon\CarbonImmutable::parse($selected->origin_date)->addDays(7)->toDateString() }}" value="{{ today()->toDateString() }}" required></div>
+                    <div class="col-md-3"><label class="form-label">Reason if changing suggestion</label><input class="form-control" name="reason"></div>
+                    <div class="col-md-2"><button class="btn btn-brand">Approve plan</button></div>
+                </form>
+            @endif
+        @endforeach
+        @endforeach
+    </div>
 @endif
 @endsection

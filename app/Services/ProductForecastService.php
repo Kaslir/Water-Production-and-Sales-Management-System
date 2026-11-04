@@ -54,6 +54,56 @@ class ProductForecastService
 
     public function run(Product $product, bool $historical = false): array
     {
+        $prepared = $this->prepare($product, $historical);
+        if (! $prepared['available']) {
+            return $prepared;
+        }
+
+        $result = $this->execute([
+            'daily_cases' => $prepared['daily_cases'],
+            'start_date' => $prepared['start_date'],
+        ], [$product->id]);
+        $this->store($product, $result, $prepared['origin_date'], $historical);
+
+        return $result;
+    }
+
+    public function runAll(iterable $products, bool $historical = false): array
+    {
+        $preparedProducts = [];
+        $payloads = [];
+        $results = [];
+        foreach ($products as $product) {
+            $prepared = $this->prepare($product, $historical);
+            if (! $prepared['available']) {
+                $results[$product->id] = $prepared;
+
+                continue;
+            }
+
+            $preparedProducts[$product->id] = ['product' => $product, 'origin_date' => $prepared['origin_date']];
+            $payloads[$product->id] = [
+                'daily_cases' => $prepared['daily_cases'],
+                'start_date' => $prepared['start_date'],
+            ];
+        }
+
+        if ($preparedProducts !== []) {
+            $reports = $this->execute(['products' => $payloads], array_keys($preparedProducts));
+            foreach ($preparedProducts as $productId => $prepared) {
+                $report = $reports[$productId] ?? ['available' => false, 'reason' => 'Python did not return a forecast for this product.'];
+                if (isset($reports[$productId])) {
+                    $this->store($prepared['product'], $report, $prepared['origin_date'], $historical);
+                }
+                $results[$productId] = $report;
+            }
+        }
+
+        return $results;
+    }
+
+    private function prepare(Product $product, bool $historical): array
+    {
         $rows = DB::table('sales_order_items')
             ->join('sales_orders', 'sales_order_items.sales_order_id', '=', 'sales_orders.id')
             ->where('sales_order_items.product_id', $product->id)
@@ -83,16 +133,27 @@ class ProductForecastService
             $dailyCases[] = (float) ($byDate[$date->toDateString()] ?? 0);
             $date = $date->addDay();
         }
+
+        return [
+            'available' => true,
+            'origin_date' => $originDate->toDateString(),
+            'start_date' => CarbonImmutable::parse($rows->first()->order_day)->toDateString(),
+            'daily_cases' => $dailyCases,
+        ];
+    }
+
+    private function execute(array $payload, array $productIds): array
+    {
         $processEnvironment = PHP_OS_FAMILY === 'Windows'
             ? ['SystemRoot' => getenv('SystemRoot') ?: getenv('WINDIR') ?: 'C:\\Windows']
             : null;
         $process = new Process([config('services.analytics.python'), base_path('analytics/product_forecast.py')], null, $processEnvironment);
-        $process->setInput(json_encode(['daily_cases' => $dailyCases, 'start_date' => CarbonImmutable::parse($rows->first()->order_day)->toDateString()], JSON_THROW_ON_ERROR));
+        $process->setInput(json_encode($payload, JSON_THROW_ON_ERROR));
         $process->setTimeout(120);
         $process->run();
         if (! $process->isSuccessful()) {
             Log::error('Product forecasting process failed.', [
-                'product_id' => $product->id,
+                'product_ids' => $productIds,
                 'python' => config('services.analytics.python'),
                 'exit_code' => $process->getExitCode(),
                 'stderr' => substr(trim($process->getErrorOutput()), 0, 4000),
@@ -100,19 +161,22 @@ class ProductForecastService
             TechnicalEvent::create(['event_type' => 'ProductForecastProcessFailure', 'source' => 'product-forecast', 'occurred_at' => now()]);
             throw new RuntimeException('Product forecasting could not run. Check the Laravel log for the Python process error.');
         }
-        $result = json_decode($process->getOutput(), true, flags: JSON_THROW_ON_ERROR);
+
+        return json_decode($process->getOutput(), true, flags: JSON_THROW_ON_ERROR);
+    }
+
+    private function store(Product $product, array $result, string $originDate, bool $historical): void
+    {
         foreach ($result as $horizon => $report) {
             if (! ($report['available'] ?? false)) {
                 continue;
             }
             foreach ($report['methods'] as $method => $values) {
                 ProductForecast::updateOrCreate(
-                    ['product_id' => $product->id, 'origin_date' => $originDate->toDateString(), 'horizon_days' => (int) $horizon, 'method' => $method],
+                    ['product_id' => $product->id, 'origin_date' => $originDate, 'horizon_days' => (int) $horizon, 'method' => $method],
                     ['predicted_cases' => $values['predicted_cases'], 'mae_cases' => $values['mae_cases'], 'bias_cases' => $values['bias_cases'], 'evaluation' => ['backtest_points' => $values['backtest_points'], 'selected' => $method === $report['best_method'], 'mode' => $historical ? 'historical_demo' : 'current', 'source' => 'recorded packaged-water orders', 'correction_cases' => $values['correction_cases'] ?? 0, 'week_start' => $report['week_start'] ?? null, 'week_end' => $report['week_end'] ?? null]]
                 );
             }
         }
-
-        return $result;
     }
 }

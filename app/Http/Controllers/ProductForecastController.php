@@ -76,23 +76,39 @@ class ProductForecastController extends Controller
 
     public function run(Request $request, ProductForecastService $service, AuditTrail $auditTrail, AppAlertService $alerts): RedirectResponse
     {
-        $data = $request->validate(['product_id' => ['required', 'exists:products,id'], 'mode' => ['required', 'in:current,historical_demo']]);
-        $product = Product::findOrFail($data['product_id']);
+        $data = $request->validate(['mode' => ['required', 'in:current,historical_demo']]);
+        $products = Product::query()->orderBy('volume_ml')->get();
+        set_time_limit(120);
         try {
-            $result = $service->run($product, $data['mode'] === 'historical_demo');
+            $results = $service->runAll($products, $data['mode'] === 'historical_demo');
         } catch (RuntimeException $exception) {
             throw ValidationException::withMessages(['forecast' => $exception->getMessage()]);
         }
-        if (! collect($result)->contains(fn ($report) => $report['available'] ?? false)) {
-            $reason = $result['reason'] ?? ($result['7']['reason'] ?? 'More dated product orders are needed before this forecast can be evaluated.');
-            throw ValidationException::withMessages(['forecast' => $reason]);
+        $feedback = [];
+        $generated = 0;
+        foreach ($products as $product) {
+            $result = $results[$product->id] ?? [];
+            $available = collect($result)->contains(fn ($report) => is_array($report) && ($report['available'] ?? false));
+            if ($available) {
+                $generated++;
+                $auditTrail->record('forecast.generated', $product, $request->user()->user_id, [], ['horizons' => [7, 30]]);
+            }
+            $feedback[] = [
+                'product' => $product->name,
+                'success' => $available,
+                'message' => $available ? 'Forecast updated.' : ($result['reason'] ?? $result['7']['reason'] ?? 'More dated product orders are needed.'),
+            ];
         }
-        $auditTrail->record('forecast.generated', $product, $request->user()->user_id, [], ['horizons' => [7, 30]]);
-        if ($data['mode'] === 'current') {
+        if ($generated > 0 && $data['mode'] === 'current') {
             $alerts->scanIfDue(true);
         }
 
-        return back()->with('status', ($data['mode'] === 'historical_demo' ? 'Historical demonstration' : 'Current forecast').' updated with Random Forest for '.$product->name.'.');
+        $response = redirect()->route('packaged.forecasts.index', ['tab' => 'forecasts'])
+            ->with('forecast_results', $feedback);
+
+        return $generated > 0
+            ? $response->with('status', $generated.' of '.$products->count().' product forecasts updated.')
+            : $response;
     }
 
     public function decision(Request $request, ProductForecast $forecast, AuditTrail $auditTrail, ProductForecastService $service, AppAlertService $alerts): RedirectResponse

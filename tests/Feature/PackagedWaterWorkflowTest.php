@@ -213,7 +213,7 @@ class PackagedWaterWorkflowTest extends TestCase
         ]);
 
         $this->actingAs($actor)->get(route('packaged.forecasts.index'))->assertOk()
-            ->assertSee('Historical demonstration')->assertSee('No present-day production quantity is recommended');
+            ->assertSee('Historical forecast')->assertSee('no current production recommendation');
         $this->actingAs($actor)->post(route('packaged.forecasts.decision', $forecast), [
             'approved_cases' => 120,
             'planned_for' => today()->addDay()->toDateString(),
@@ -237,7 +237,7 @@ class PackagedWaterWorkflowTest extends TestCase
         ]);
 
         $this->actingAs($actor)->get(route('packaged.forecasts.index'))->assertOk()
-            ->assertDontSee('Gradient Boosting');
+            ->assertSee('Gradient Boosting was compared during development but is not used for these estimates.');
         $this->actingAs($actor)->post(route('packaged.forecasts.decision', $forecast), [
             'approved_cases' => 120,
             'planned_for' => today()->toDateString(),
