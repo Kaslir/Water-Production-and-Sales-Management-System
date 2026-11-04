@@ -6,6 +6,7 @@ use App\Models\DispatchLine;
 use App\Models\Product;
 use App\Models\ProductionBatch;
 use App\Models\ProductManufacturingPolicy;
+use App\Models\User;
 use App\Services\AuditTrail;
 use App\Services\PackagedWaterService;
 use Illuminate\Http\RedirectResponse;
@@ -35,11 +36,21 @@ class PackagedProductionController extends Controller
         return view('packaged.batch-show', compact('batch', 'deliveries'));
     }
 
-    public function manufacturingSettings(): View
+    public function manufacturingSettings(Request $request): View
     {
+        $products = Product::query()->where('is_active', true)->orderBy('volume_ml')->get();
+        $policies = ProductManufacturingPolicy::query()
+            ->whereIn('product_id', $products->pluck('id'))
+            ->orderBy('product_id')
+            ->orderByDesc('effective_from')
+            ->get()
+            ->groupBy('product_id');
+
         return view('packaged.manufacturing-settings', [
-            'products' => Product::query()->where('is_active', true)->orderBy('volume_ml')->get(),
-            'policies' => ProductManufacturingPolicy::query()->with('product')->orderBy('product_id')->orderByDesc('effective_from')->get()->groupBy('product_id'),
+            'products' => $products,
+            'policies' => $policies,
+            'selectedProduct' => $products->firstWhere('id', (int) $request->query('product')),
+            'approvers' => User::query()->whereIn('user_id', $policies->flatten()->pluck('approved_by')->filter()->unique())->pluck('name', 'user_id'),
         ]);
     }
 

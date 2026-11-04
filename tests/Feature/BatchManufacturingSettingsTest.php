@@ -106,4 +106,31 @@ class BatchManufacturingSettingsTest extends TestCase
         $this->assertSame($plan->id, ProductionBatch::firstOrFail()->production_forecast_decision_id);
         $this->assertSame(10, $plan->fresh()->cases_completed);
     }
+
+    public function test_manufacturing_settings_show_the_active_policy_and_its_approval_history(): void
+    {
+        $manager = $this->user('manager');
+        $product = Product::where('sku', 'WATER-500ML')->firstOrFail();
+        $this->actingAs($manager)
+            ->get(route('packaged.manufacturing-settings.index'))
+            ->assertOk()
+            ->assertSee('Product manufacturing policies')
+            ->assertDontSee('Approve new settings');
+
+        $this->actingAs($manager)->post(route('packaged.manufacturing-settings.store', $product), $this->settings())->assertRedirect();
+        $futureSettings = $this->settings();
+        $futureSettings['effective_from'] = today()->addDay()->toDateString();
+        $futureSettings['shelf_life_days'] = 150;
+        $this->actingAs($manager)->post(route('packaged.manufacturing-settings.store', $product), $futureSettings)->assertRedirect();
+
+        $this->actingAs($manager)
+            ->get(route('packaged.manufacturing-settings.index', ['product' => $product->id]))
+            ->assertOk()
+            ->assertSee('Currently approved settings')
+            ->assertSee('120 days')
+            ->assertSee('KSh 50.00')
+            ->assertSee('View Settings History (2)')
+            ->assertSee('150 days')
+            ->assertSee('Approved by manager');
+    }
 }

@@ -1,9 +1,203 @@
 @extends('layouts.app')
 @section('page-title', 'Profit & expiry')
 @section('content')
-<div class="alert alert-info">These are management estimates for the new packaged-water workflow. Legacy synthetic litre transactions are not mixed into these figures.</div>
-<form class="toolbar mb-3" method="get"><label class="form-label mb-0">From</label><input class="form-control w-auto" name="from" type="date" value="{{ $from }}"><label class="form-label mb-0">To</label><input class="form-control w-auto" name="to" type="date" value="{{ $to }}"><button class="btn btn-brand">Apply</button></form>
-<div class="row g-3 mb-3">@foreach(['Net invoiced sales after credits'=>$revenue,'Customer return credits'=>$credits,'Cost of goods sold'=>$costOfGoodsSold,'Gross profit'=>$grossProfit,'Delivery expense'=>$deliveryCost,'Other operating expense'=>$operatingExpenses,'Expiry / disposal loss'=>$disposalLoss,'Operating profit estimate'=>$operatingProfit,'Cash collected'=>$cashCollected,'Outstanding balance (negative means credit due)'=>$outstanding] as $label=>$value)<div class="col-md-4"><div class="metric"><span class="metric-label">{{ $label }}</span><span class="metric-value">KSh {{ number_format($value,2) }}</span></div></div>@endforeach</div>
-<div class="row g-3"><div class="col-lg-7"><div class="panel"><h6>Invoices issued in period</h6><div class="table-responsive"><table class="table"><thead><tr><th>Invoice</th><th>Customer</th><th>Issued</th><th>Amount</th><th>Paid</th></tr></thead><tbody>@forelse($invoices as $invoice)<tr><td><a href="{{ route('packaged.orders.show',$invoice->order) }}">{{ $invoice->invoice_number }}</a></td><td>{{ $invoice->order->customer->name }}</td><td>{{ $invoice->issued_on->format('d M Y') }}</td><td>{{ number_format($invoice->amount,2) }}</td><td>{{ number_format($invoice->payments->sum('amount'),2) }}</td></tr>@empty<tr><td colspan="5">No invoices in the selected period.</td></tr>@endforelse</tbody></table></div></div></div><div class="col-lg-5"><div class="panel mb-3"><h6>Expired or near-expiry stock</h6><table class="table"><thead><tr><th>Batch</th><th>Expiry</th><th>Cases</th></tr></thead><tbody>@forelse($nearExpiry as $batch)<tr><td>{{ $batch->batch_code }}<div class="tiny">{{ $batch->product->name }}</div></td><td>{{ $batch->expires_on->format('d M Y') }}</td><td>{{ $batch->cases_on_hand }}</td></tr>@empty<tr><td colspan="3">No batches nearing expiry.</td></tr>@endforelse</tbody></table></div>@if(auth()->user()->hasRole('administrator','manager'))<div class="panel"><h6>Record operating expense</h6><form method="post" action="{{ route('packaged.expenses.store') }}">@csrf<label class="form-label">Date</label><input class="form-control mb-2" type="date" name="expense_date" value="{{ today()->toDateString() }}" required><label class="form-label">Category</label><input class="form-control mb-2" name="category" required><label class="form-label">Amount (KSh)</label><input class="form-control mb-2" type="number" name="amount" min="0.01" step="0.01" required><label class="form-label">Notes</label><textarea class="form-control mb-2" name="notes"></textarea><button class="btn btn-brand">Record expense</button></form></div>@endif</div></div>
-<div class="row g-3 mt-1"><div class="col-lg-6"><div class="panel"><h6>Profit by bottled-water product</h6><table class="table"><thead><tr><th>Product</th><th>Cases</th><th>Sales</th><th>Gross profit</th></tr></thead><tbody>@forelse($productPerformance as $row)<tr><td>{{ $row['name'] }}</td><td>{{ $row['cases'] }}</td><td>{{ number_format($row['revenue'],2) }}</td><td>{{ number_format($row['revenue']-$row['cost'],2) }}</td></tr>@empty<tr><td colspan="4">No invoiced products in this period.</td></tr>@endforelse</tbody></table></div></div><div class="col-lg-6"><div class="panel"><h6>Order contribution by customer</h6><table class="table"><thead><tr><th>Customer</th><th>Sales</th><th>Delivery cost</th><th>Contribution</th></tr></thead><tbody>@forelse($customerPerformance as $row)<tr><td>{{ $row['name'] }}</td><td>{{ number_format($row['revenue'],2) }}</td><td>{{ number_format($row['delivery'],2) }}</td><td>{{ number_format($row['revenue']-$row['cost']-$row['delivery'],2) }}</td></tr>@empty<tr><td colspan="4">No invoiced customers in this period.</td></tr>@endforelse</tbody></table></div></div></div>
+<div class="panel mb-3">
+    <div class="d-flex justify-content-between align-items-start flex-wrap gap-3">
+        <div>
+            <h1 class="h4 mb-1">Profit and stock expiry</h1>
+            <p class="small text-muted mb-0">Management estimates for packaged-water operations, not audited financial statements. Legacy aggregate-litre transactions are excluded.</p>
+        </div>
+        @if(auth()->user()->hasRole('administrator', 'manager'))
+            <button class="btn btn-brand" type="button" data-bs-toggle="modal" data-bs-target="#recordExpenseModal">Record Expense</button>
+        @endif
+    </div>
+    <form class="row g-2 align-items-end mt-2" method="get" action="{{ route('packaged.reports.index') }}">
+        <div class="col-sm-auto">
+            <label class="form-label" for="report-from">From</label>
+            <input class="form-control" id="report-from" name="from" type="date" value="{{ $from }}">
+        </div>
+        <div class="col-sm-auto">
+            <label class="form-label" for="report-to">To</label>
+            <input class="form-control" id="report-to" name="to" type="date" value="{{ $to }}">
+        </div>
+        <div class="col-sm-auto"><button class="btn btn-brand" type="submit">Apply period</button></div>
+    </form>
+</div>
+
+<div class="row g-3 mb-3">
+    <div class="col-sm-6 col-xl-3">
+        <div class="panel h-100 d-flex flex-column">
+            <div class="small text-uppercase fw-semibold text-muted">Net Sales</div>
+            <div class="small text-muted mb-3">Selected period</div>
+            <div class="fs-4 fw-bold mt-auto">KSh {{ number_format($revenue, 2) }}</div>
+        </div>
+    </div>
+    <div class="col-sm-6 col-xl-3">
+        <div class="panel h-100 d-flex flex-column">
+            <div class="small text-uppercase fw-semibold text-muted">Gross Profit</div>
+            <div class="small text-muted mb-3">Selected period · management estimate</div>
+            <div class="fs-4 fw-bold mt-auto">KSh {{ number_format($grossProfit, 2) }}</div>
+        </div>
+    </div>
+    <div class="col-sm-6 col-xl-3">
+        <div class="panel h-100 d-flex flex-column">
+            <div class="small text-uppercase fw-semibold text-muted">Operating Profit</div>
+            <div class="small text-muted mb-3">Selected period · management estimate</div>
+            <div class="fs-4 fw-bold mt-auto">KSh {{ number_format($operatingProfit, 2) }}</div>
+        </div>
+    </div>
+    <div class="col-sm-6 col-xl-3">
+        <div class="panel h-100 d-flex flex-column">
+            <div class="small text-uppercase fw-semibold text-muted">Outstanding Payments</div>
+            <div class="small text-muted mb-3">All invoices, not limited to selected period</div>
+            <div class="fs-4 fw-bold mt-auto">KSh {{ number_format($outstanding, 2) }}</div>
+            @if($outstanding < 0)<div class="small text-muted mt-1">Negative balance means customer credit is due.</div>@endif
+        </div>
+    </div>
+</div>
+
+<section class="panel mb-3" aria-labelledby="financial-breakdown-heading">
+    <div class="d-flex justify-content-between align-items-baseline flex-wrap gap-2 mb-2">
+        <h2 class="h5 mb-0" id="financial-breakdown-heading">Financial Breakdown</h2>
+        <span class="small text-muted">Selected period: {{ \Carbon\Carbon::parse($from)->format('d M Y') }} – {{ \Carbon\Carbon::parse($to)->format('d M Y') }}</span>
+    </div>
+    <div class="row g-0">
+        <div class="col-lg-6 pe-lg-3">
+            <div class="d-flex justify-content-between gap-3 border-bottom py-2"><span>Customer return credits</span><strong>KSh {{ number_format($credits, 2) }}</strong></div>
+            <div class="d-flex justify-content-between gap-3 border-bottom py-2"><span>Cost of goods sold</span><strong>KSh {{ number_format($costOfGoodsSold, 2) }}</strong></div>
+            <div class="d-flex justify-content-between gap-3 border-bottom py-2"><span>Delivery expense</span><strong>KSh {{ number_format($deliveryCost, 2) }}</strong></div>
+        </div>
+        <div class="col-lg-6 ps-lg-3">
+            <div class="d-flex justify-content-between gap-3 border-bottom py-2"><span>Other operating expense</span><strong>KSh {{ number_format($operatingExpenses, 2) }}</strong></div>
+            <div class="d-flex justify-content-between gap-3 border-bottom py-2"><span>Expiry and disposal loss</span><strong>KSh {{ number_format($disposalLoss, 2) }}</strong></div>
+            <div class="d-flex justify-content-between gap-3 border-bottom py-2"><span>Cash collected during period</span><strong>KSh {{ number_format($cashCollected, 2) }}</strong></div>
+        </div>
+    </div>
+</section>
+
+<section class="panel mb-3" aria-labelledby="stock-expiry-heading">
+    <div class="d-flex justify-content-between align-items-baseline flex-wrap gap-2 mb-2">
+        <h2 class="h5 mb-0" id="stock-expiry-heading">Stock Expiry Monitoring</h2>
+        <span class="small text-muted">Expired stock and batches due within 30 days</span>
+    </div>
+    <div class="table-responsive">
+        <table class="table align-middle mb-0">
+            <thead><tr><th>Batch</th><th>Product</th><th>Cases on hand</th><th>Expiry date</th><th>Warning</th></tr></thead>
+            <tbody>
+                @forelse($nearExpiry as $batch)
+                    <tr>
+                        <td><a href="{{ route('packaged.batches.show', $batch) }}">{{ $batch->batch_code }}</a></td>
+                        <td>{{ $batch->product->name }}</td>
+                        <td>{{ number_format($batch->cases_on_hand) }}</td>
+                        <td>{{ $batch->expires_on->format('d M Y') }}</td>
+                        <td>
+                            @if($batch->expires_on->lt(today()))
+                                <span class="badge text-bg-danger">Expired — do not dispatch</span>
+                            @elseif($batch->expires_on->toDateString() === today()->toDateString())
+                                <span class="badge text-bg-danger">Expires today — do not dispatch</span>
+                            @elseif($batch->expires_on->lte(today()->addDays(7)))
+                                <span class="badge text-bg-warning">Expires within 7 days</span>
+                            @else
+                                <span class="badge text-bg-secondary">Expires within 30 days</span>
+                            @endif
+                        </td>
+                    </tr>
+                @empty
+                    <tr><td colspan="5" class="text-center text-muted py-4">No batches are expired or nearing expiry.</td></tr>
+                @endforelse
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<section class="panel" aria-labelledby="detailed-reports-heading">
+    <h2 class="h5 mb-3" id="detailed-reports-heading">Detailed Reports</h2>
+    <ul class="nav nav-tabs" id="profit-report-tabs" role="tablist" aria-label="Detailed reports">
+        <li class="nav-item" role="presentation"><button class="nav-link active" id="invoices-tab" type="button" role="tab" data-bs-toggle="tab" data-bs-target="#invoices-report" aria-controls="invoices-report" aria-selected="true">Invoices</button></li>
+        <li class="nav-item" role="presentation"><button class="nav-link" id="products-tab" type="button" role="tab" data-bs-toggle="tab" data-bs-target="#products-report" aria-controls="products-report" aria-selected="false">Profit by Product</button></li>
+        <li class="nav-item" role="presentation"><button class="nav-link" id="customers-tab" type="button" role="tab" data-bs-toggle="tab" data-bs-target="#customers-report" aria-controls="customers-report" aria-selected="false">Customer Contribution</button></li>
+    </ul>
+    <div class="tab-content pt-3" id="profit-report-content">
+        <div class="tab-pane fade show active" id="invoices-report" role="tabpanel" aria-labelledby="invoices-tab" tabindex="0">
+            <div class="table-responsive">
+                <table class="table align-middle mb-0">
+                    <thead><tr><th>Invoice</th><th>Customer</th><th>Issued</th><th>Amount (KSh)</th><th>Paid (KSh)</th></tr></thead>
+                    <tbody>
+                        @forelse($invoices as $invoice)
+                            <tr><td><a href="{{ route('packaged.orders.show', $invoice->order) }}">{{ $invoice->invoice_number }}</a></td><td>{{ $invoice->order->customer->name }}</td><td>{{ $invoice->issued_on->format('d M Y') }}</td><td>{{ number_format($invoice->amount, 2) }}</td><td>{{ number_format($invoice->payments->sum('amount'), 2) }}</td></tr>
+                        @empty
+                            <tr><td colspan="5" class="text-center text-muted py-4">No invoices were issued in the selected period.</td></tr>
+                        @endforelse
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <div class="tab-pane fade" id="products-report" role="tabpanel" aria-labelledby="products-tab" tabindex="0">
+            <div class="table-responsive">
+                <table class="table align-middle mb-0">
+                    <thead><tr><th>Product</th><th>Cases</th><th>Sales (KSh)</th><th>Gross profit (KSh)</th></tr></thead>
+                    <tbody>
+                        @forelse($productPerformance as $row)
+                            <tr><td>{{ $row['name'] }}</td><td>{{ $row['cases'] }}</td><td>{{ number_format($row['revenue'], 2) }}</td><td>{{ number_format($row['revenue'] - $row['cost'], 2) }}</td></tr>
+                        @empty
+                            <tr><td colspan="4" class="text-center text-muted py-4">No invoiced products in the selected period.</td></tr>
+                        @endforelse
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <div class="tab-pane fade" id="customers-report" role="tabpanel" aria-labelledby="customers-tab" tabindex="0">
+            <div class="table-responsive">
+                <table class="table align-middle mb-0">
+                    <thead><tr><th>Customer</th><th>Sales (KSh)</th><th>Delivery cost (KSh)</th><th>Contribution (KSh)</th></tr></thead>
+                    <tbody>
+                        @forelse($customerPerformance as $row)
+                            <tr><td>{{ $row['name'] }}</td><td>{{ number_format($row['revenue'], 2) }}</td><td>{{ number_format($row['delivery'], 2) }}</td><td>{{ number_format($row['revenue'] - $row['cost'] - $row['delivery'], 2) }}</td></tr>
+                        @empty
+                            <tr><td colspan="4" class="text-center text-muted py-4">No invoiced customers in the selected period.</td></tr>
+                        @endforelse
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</section>
+
+@if(auth()->user()->hasRole('administrator', 'manager'))
+    <div class="modal fade" id="recordExpenseModal" tabindex="-1" aria-labelledby="recordExpenseModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 class="modal-title fs-5" id="recordExpenseModalLabel">Record operating expense</h2>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form method="post" action="{{ route('packaged.expenses.store') }}">
+                    @csrf
+                    <input type="hidden" name="_expense_form" value="1">
+                    <div class="modal-body">
+                        <label class="form-label" for="expense-date">Date</label>
+                        <input class="form-control mb-3" id="expense-date" type="date" name="expense_date" value="{{ old('expense_date', today()->toDateString()) }}" required>
+                        <label class="form-label" for="expense-category">Category</label>
+                        <input class="form-control mb-3" id="expense-category" name="category" value="{{ old('category') }}" required>
+                        <label class="form-label" for="expense-amount">Amount (KSh)</label>
+                        <input class="form-control mb-3" id="expense-amount" type="number" name="amount" min="0.01" step="0.01" value="{{ old('amount') }}" required>
+                        <label class="form-label" for="expense-notes">Notes</label>
+                        <textarea class="form-control" id="expense-notes" name="notes" rows="3">{{ old('notes') }}</textarea>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Cancel</button>
+                        <button class="btn btn-brand" type="submit">Record expense</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    @if(old('_expense_form'))
+        <script>
+            document.addEventListener('DOMContentLoaded', function () {
+                bootstrap.Modal.getOrCreateInstance(document.getElementById('recordExpenseModal')).show();
+            });
+        </script>
+    @endif
+@endif
 @endsection
