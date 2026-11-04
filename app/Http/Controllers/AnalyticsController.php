@@ -47,12 +47,6 @@ class AnalyticsController extends Controller
             'cases' => $rows->sum('cases'),
             'litres' => $rows->sum('litres'),
         ])->values();
-        $productDemand = $demandByProduct->groupBy('product_id')->map(fn ($rows) => [
-            'name' => $rows->first()->product_name,
-            'cases' => $rows->sum('cases'),
-            'litres' => $rows->sum('litres'),
-        ])->values();
-
         $revenueQuery = DB::table('invoices')->selectRaw('issued_on as day, SUM(amount) as revenue')->groupBy('issued_on')->orderBy('issued_on');
         $dispatchQuery = DB::table('dispatch_lines')->join('dispatches', 'dispatch_lines.dispatch_id', '=', 'dispatches.id')
             ->selectRaw('dispatches.dispatched_on as day, SUM(dispatch_lines.cases) as cases')
@@ -70,7 +64,6 @@ class AnalyticsController extends Controller
             'dailyDemand' => $dailyDemand,
             'dailyRevenue' => $dailyRevenue,
             'dailyDispatches' => $dailyDispatches,
-            'productDemand' => $productDemand,
             'totalCasesOrdered' => $dailyDemand->sum('cases'),
             'totalLitresOrdered' => $dailyDemand->sum('litres'),
             'totalInvoiced' => $dailyRevenue->sum('revenue'),

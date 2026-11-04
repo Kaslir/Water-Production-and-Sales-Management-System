@@ -9,7 +9,6 @@
         @endforeach
     </select>
     <button class="btn btn-brand">Apply</button>
-    @if($latestDate)<span class="tiny ms-auto">Latest recorded activity: {{ $latestDate->format('d M Y') }}</span>@endif
 </form>
 <div class="row g-3 mb-3">
     <div class="col-md-3"><div class="metric"><span class="metric-label">CASES ORDERED</span><span class="metric-value">{{ number_format($totalCasesOrdered) }}</span></div></div>
@@ -20,8 +19,7 @@
 <div class="row g-3">
     <div class="col-lg-6"><div class="panel"><strong class="small">Customer order demand</strong><div style="height:280px">@if($dailyDemand->isNotEmpty())<canvas id="demand-chart"></canvas>@else<p class="tiny mt-3">No orders in this period.</p>@endif</div></div></div>
     <div class="col-lg-6"><div class="panel"><strong class="small">Invoiced revenue</strong><div style="height:280px">@if($dailyRevenue->isNotEmpty())<canvas id="revenue-chart"></canvas>@else<p class="tiny mt-3">No invoices in this period.</p>@endif</div></div></div>
-    <div class="col-lg-8"><div class="panel"><strong class="small">Inventory out at dispatch</strong><div style="height:250px">@if($dailyDispatches->isNotEmpty())<canvas id="dispatch-chart"></canvas>@else<p class="tiny mt-3">No dispatches in this period.</p>@endif</div></div></div>
-    <div class="col-lg-4"><div class="panel h-100"><strong class="small">Demand by bottled-water product</strong><table class="table mt-3"><thead><tr><th>Product</th><th>Cases</th><th>Litres</th></tr></thead><tbody>@forelse($productDemand as $product)<tr><td>{{ $product['name'] }}</td><td>{{ number_format($product['cases']) }}</td><td>{{ number_format($product['litres']) }}</td></tr>@empty<tr><td colspan="3">No orders in this period.</td></tr>@endforelse</tbody></table><p class="tiny">Order demand, invoiced sales, and dispatches are different stages of the workflow; they are not added together.</p><a href="{{ route('packaged.forecasts.index') }}">View product forecasts and production planning</a></div></div>
+    <div class="col-12"><div class="panel"><strong class="small">Inventory out at dispatch</strong><div style="height:250px">@if($dailyDispatches->isNotEmpty())<canvas id="dispatch-chart"></canvas>@else<p class="tiny mt-3">No dispatches in this period.</p>@endif</div></div></div>
 </div>
 <script>
 const chartOptions = (unit) => ({maintainAspectRatio:false,elements:{point:{radius:0,hitRadius:5}},scales:{x:{ticks:{maxTicksLimit:10}},y:{beginAtZero:true,title:{display:true,text:unit}}}});
