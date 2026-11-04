@@ -50,7 +50,7 @@ class BatchManufacturingSettingsTest extends TestCase
             'expires_on' => today()->addYears(10)->toDateString(),
             'bottle_cost' => 0,
             'batch_code' => 'USER-OVERRIDE',
-        ])->assertRedirect(route('packaged.batches.index'));
+        ])->assertRedirect(route('inventory.index', ['tab' => 'batches']));
 
         $batch = ProductionBatch::firstOrFail();
         $this->assertSame(today()->addDays(120)->toDateString(), $batch->expires_on->toDateString());
@@ -101,7 +101,7 @@ class BatchManufacturingSettingsTest extends TestCase
             'product_id' => $product->id,
             'produced_on' => today()->toDateString(),
             'cases_produced' => 10,
-        ])->assertRedirect(route('packaged.batches.index'));
+        ])->assertRedirect(route('inventory.index', ['tab' => 'batches']));
 
         $this->assertSame($plan->id, ProductionBatch::firstOrFail()->production_forecast_decision_id);
         $this->assertSame(10, $plan->fresh()->cases_completed);

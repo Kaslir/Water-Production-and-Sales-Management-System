@@ -221,6 +221,30 @@ class PackagedWaterWorkflowTest extends TestCase
         $this->assertDatabaseCount('production_forecast_decisions', 0);
     }
 
+    public function test_previous_model_forecast_cannot_be_approved_as_a_current_plan(): void
+    {
+        $actor = $this->actor();
+        $product = Product::where('sku', 'WATER-1L')->firstOrFail();
+        $forecast = ProductForecast::create([
+            'product_id' => $product->id,
+            'origin_date' => today()->startOfWeek()->subDay(),
+            'horizon_days' => 7,
+            'method' => 'gradient_boosting',
+            'predicted_cases' => 120,
+            'mae_cases' => 8,
+            'bias_cases' => 1,
+            'evaluation' => ['selected' => true, 'mode' => 'current'],
+        ]);
+
+        $this->actingAs($actor)->get(route('packaged.forecasts.index'))->assertOk()
+            ->assertDontSee('Gradient Boosting');
+        $this->actingAs($actor)->post(route('packaged.forecasts.decision', $forecast), [
+            'approved_cases' => 120,
+            'planned_for' => today()->toDateString(),
+        ])->assertStatus(422);
+        $this->assertDatabaseCount('production_forecast_decisions', 0);
+    }
+
     public function test_completed_current_forecast_is_compared_with_later_orders(): void
     {
         $actor = $this->actor();

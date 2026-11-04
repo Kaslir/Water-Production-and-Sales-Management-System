@@ -8,6 +8,7 @@ use App\Models\ProductionForecastDecision;
 use App\Models\TechnicalEvent;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use RuntimeException;
 use Symfony\Component\Process\Process;
 
@@ -82,13 +83,22 @@ class ProductForecastService
             $dailyCases[] = (float) ($byDate[$date->toDateString()] ?? 0);
             $date = $date->addDay();
         }
-        $process = new Process([config('services.analytics.python'), base_path('analytics/product_forecast.py')]);
+        $processEnvironment = PHP_OS_FAMILY === 'Windows'
+            ? ['SystemRoot' => getenv('SystemRoot') ?: getenv('WINDIR') ?: 'C:\\Windows']
+            : null;
+        $process = new Process([config('services.analytics.python'), base_path('analytics/product_forecast.py')], null, $processEnvironment);
         $process->setInput(json_encode(['daily_cases' => $dailyCases, 'start_date' => CarbonImmutable::parse($rows->first()->order_day)->toDateString()], JSON_THROW_ON_ERROR));
         $process->setTimeout(120);
         $process->run();
         if (! $process->isSuccessful()) {
+            Log::error('Product forecasting process failed.', [
+                'product_id' => $product->id,
+                'python' => config('services.analytics.python'),
+                'exit_code' => $process->getExitCode(),
+                'stderr' => substr(trim($process->getErrorOutput()), 0, 4000),
+            ]);
             TechnicalEvent::create(['event_type' => 'ProductForecastProcessFailure', 'source' => 'product-forecast', 'occurred_at' => now()]);
-            throw new RuntimeException('Product forecasting could not run. Check Python and analytics/requirements.txt.');
+            throw new RuntimeException('Product forecasting could not run. Check the Laravel log for the Python process error.');
         }
         $result = json_decode($process->getOutput(), true, flags: JSON_THROW_ON_ERROR);
         foreach ($result as $horizon => $report) {

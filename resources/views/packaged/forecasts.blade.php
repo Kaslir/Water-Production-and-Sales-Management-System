@@ -2,7 +2,7 @@
 @section('page-title', 'Production planning')
 @section('content')
 @php($lastOrder = $latestOrderDate ? \Carbon\Carbon::parse($latestOrderDate) : null)
-<div class="alert alert-info">The 7-day forecast compares last week's demand with Random Forest and Gradient Boosting. Each estimate covers Monday through Sunday; ML estimates use a correction from earlier completed weeks. The 30-day estimate is an exploratory longer-range view. The demonstration dataset is synthetic, so its scores do not prove accuracy at a real company. @if($lastOrder)Last recorded order: {{ $lastOrder->format('d M Y') }}.@endif</div>
+<div class="alert alert-info">Random Forest estimates demand for each bottled-water product. The 7-day estimate covers Monday through Sunday and uses a correction from earlier completed weeks. The 30-day estimate is an exploratory longer-range view. The demonstration dataset is synthetic, so its scores do not prove accuracy at a real company. @if($lastOrder)Last recorded order: {{ $lastOrder->format('d M Y') }}.@endif</div>
 @if($lastOrder && $lastOrder->lt(today()->subDays(14)))<div class="alert alert-warning">There are no recent orders for a current forecast. You may evaluate the historical dataset as of {{ $lastOrder->format('d M Y') }}. Those dated estimates are a demonstration, not a prediction for today.</div>@endif
 <div class="row g-3">
 @foreach($products as $product)
@@ -11,7 +11,7 @@
     @php($isCurrent = $origin && \Carbon\CarbonImmutable::parse($origin)->lt(today()) && \Carbon\CarbonImmutable::parse($origin)->addDays(7)->gte(today()) && ($group->first()?->evaluation['mode'] ?? null) === 'current')
     <div class="col-xl-6"><div class="panel h-100">
         <div class="d-flex justify-content-between gap-3"><div><h5>{{ $product->name }}</h5><div class="tiny">{{ $product->bottles_per_case }} bottles per case · Released stock: {{ number_format($stock[$product->id] ?? 0) }} cases</div></div>
-            @if(auth()->user()->hasRole('administrator', 'manager'))<form method="post" action="{{ route('packaged.forecasts.run') }}">@csrf<input type="hidden" name="product_id" value="{{ $product->id }}"><input type="hidden" name="mode" value="{{ $lastOrder && $lastOrder->lt(today()->subDays(14)) ? 'historical_demo' : 'current' }}"><button class="btn btn-brand btn-sm">{{ $lastOrder && $lastOrder->lt(today()->subDays(14)) ? 'Evaluate historical data' : 'Evaluate models' }}</button></form>@endif
+            @if(auth()->user()->hasRole('administrator', 'manager'))<form method="post" action="{{ route('packaged.forecasts.run') }}">@csrf<input type="hidden" name="product_id" value="{{ $product->id }}"><input type="hidden" name="mode" value="{{ $lastOrder && $lastOrder->lt(today()->subDays(14)) ? 'historical_demo' : 'current' }}"><button class="btn btn-brand btn-sm">{{ $lastOrder && $lastOrder->lt(today()->subDays(14)) ? 'Evaluate historical data' : 'Run forecast' }}</button></form>@endif
         </div><hr>
         @if($origin)<p class="tiny mb-2">{{ $isCurrent ? 'Current forecast' : 'Historical demonstration' }} · Model origin: {{ $origin->format('d M Y') }}</p>@endif
         @foreach([7 => 'Monday–Sunday demand', 30 => '30-day exploratory demand'] as $days => $label)
@@ -22,8 +22,9 @@
             @if($chosen)
                 <p class="mb-1">Estimated demand: <strong>{{ number_format($chosen->predicted_cases, 0) }} cases</strong> · {{ \Carbon\CarbonImmutable::parse($origin)->addDay()->format('d M Y') }}–{{ \Carbon\CarbonImmutable::parse($origin)->addDays($days)->format('d M Y') }}</p>
                 @if($plan)<p class="tiny mb-2">{{ number_format($plan['recorded_cases']) }} cases already ordered this week; {{ number_format($plan['remaining_forecast_cases'], 0) }} forecast cases remain; planning buffer {{ number_format($plan['buffer_cases']) }} cases (one historical MAE, rounded up); {{ number_format($plan['confirmed_cases']) }} cases on confirmed orders; {{ number_format($plan['eligible_stock']) }} eligible cases in stock; {{ number_format($plan['planned_cases']) }} cases in an approved, unfinished plan. Additional suggested production: <strong>{{ number_format($plan['recommended_cases']) }} cases</strong>. The buffer affects the plan, not the forecast or its bias score.</p>
+                @elseif($isCurrent && $days === 30)<p class="tiny mb-2">The 30-day estimate is for longer-range review. Only the 7-day forecast can be approved as a production plan.</p>
                 @else<p class="tiny mb-2">This historical result is for model demonstration only. No present-day production quantity is recommended from it.</p>@endif
-                <table class="table"><thead><tr><th>Method</th><th>MAE (cases)</th><th>Bias (cases)</th></tr></thead><tbody>@foreach($rows as $row)<tr @if($row->id === $chosen->id) class="table-success" @endif><td>{{ str_replace('_', ' ', ucwords($row->method, '_')) }}</td><td>{{ number_format($row->mae_cases, 2) }}</td><td>{{ number_format($row->bias_cases, 2) }}</td></tr>@endforeach</tbody></table>
+                <p class="tiny mb-2">Random Forest validation: MAE {{ number_format($chosen->mae_cases, 2) }} cases; bias {{ number_format($chosen->bias_cases, 2) }} cases.</p>
             @else<p class="tiny">No evaluated forecast for this period yet.</p>@endif
         @endforeach
     </div></div>

@@ -24,7 +24,7 @@ class ProductForecastController extends Controller
     {
         $products = Product::query()->orderBy('volume_ml')->get();
         $latestForecasts = ProductForecast::query()
-            ->whereIn('method', ['previous_week', 'random_forest', 'gradient_boosting'])
+            ->where('method', 'random_forest')
             ->orderByDesc('origin_date')->get()->groupBy('product_id')->map(function ($rows) {
                 $latestOrigin = $rows->first()->origin_date->toDateString();
 
@@ -44,7 +44,7 @@ class ProductForecastController extends Controller
             }
         }
         $completedEvaluations = ProductForecast::query()->with('product')
-            ->where('horizon_days', 7)->orderByDesc('origin_date')->limit(80)->get()
+            ->where('horizon_days', 7)->where('method', 'random_forest')->orderByDesc('origin_date')->limit(80)->get()
             ->filter(fn ($forecast) => ($forecast->evaluation['selected'] ?? false)
                 && ($forecast->evaluation['mode'] ?? null) === 'current'
                 && ($forecast->evaluation['week_start'] ?? null)
@@ -90,14 +90,14 @@ class ProductForecastController extends Controller
             $alerts->scanIfDue(true);
         }
 
-        return back()->with('status', ($data['mode'] === 'historical_demo' ? 'Historical demonstration' : 'Current forecast').' and chronological model comparison updated for '.$product->name.'.');
+        return back()->with('status', ($data['mode'] === 'historical_demo' ? 'Historical demonstration' : 'Current forecast').' updated with Random Forest for '.$product->name.'.');
     }
 
     public function decision(Request $request, ProductForecast $forecast, AuditTrail $auditTrail, ProductForecastService $service, AppAlertService $alerts): RedirectResponse
     {
         abort_unless(
             $forecast->horizon_days === 7
-            && in_array($forecast->method, ['previous_week', 'random_forest', 'gradient_boosting'], true)
+            && $forecast->method === 'random_forest'
             && (bool) ($forecast->evaluation['selected'] ?? false)
             && ($forecast->evaluation['mode'] ?? null) === 'current'
             && $forecast->origin_date->lt(today())

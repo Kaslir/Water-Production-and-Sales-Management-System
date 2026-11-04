@@ -4,13 +4,12 @@ from collections import deque
 from datetime import date, timedelta
 
 import numpy as np
-from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
+from sklearn.ensemble import RandomForestRegressor
 
 
 HORIZONS = (7, 30)
 MIN_HISTORY = 90
-METHODS = ("random_forest", "gradient_boosting")
-WEEKLY_METHODS = ("previous_week",) + METHODS
+METHOD = "random_forest"
 
 
 def features(values, origin):
@@ -27,14 +26,9 @@ def features(values, origin):
     ]
 
 
-def model_for(method):
-    if method == "random_forest":
-        return RandomForestRegressor(
-            n_estimators=120, max_depth=5, min_samples_leaf=4, random_state=2026
-        )
-    return GradientBoostingRegressor(
-        n_estimators=120, max_depth=2, min_samples_leaf=5,
-        learning_rate=0.04, random_state=2026,
+def model_for():
+    return RandomForestRegressor(
+        n_estimators=120, max_depth=5, min_samples_leaf=4, random_state=2026
     )
 
 
@@ -65,52 +59,42 @@ def forecast_weekly(values, start_date):
     if len(evaluation_origins) < 12:
         return {"available": False, "reason": "At least 12 completed weeks are needed for chronological evaluation."}
 
-    errors = {method: [] for method in WEEKLY_METHODS}
-    raw_history = {method: deque(maxlen=8) for method in METHODS}
+    errors = []
+    raw_history = deque(maxlen=8)
     for origin in evaluation_origins:
         training_origins = [candidate for candidate in completed_origins if candidate + 7 <= origin]
         if len(training_origins) < 8:
-            return {"available": False, "reason": "Not enough earlier weeks to train both models."}
+            return {"available": False, "reason": "Not enough earlier weeks to train the model."}
         x_train = np.asarray([weekly_features(values, candidate, start_date) for candidate in training_origins])
         y_train = np.asarray([sum(values[candidate + 1 : candidate + 8]) for candidate in training_origins])
         x_test = np.asarray([weekly_features(values, origin, start_date)])
         actual = sum(values[origin + 1 : origin + 8])
-        baseline = sum(values[origin - 6 : origin + 1])
-        errors["previous_week"].append(baseline - actual)
-        for method in METHODS:
-            estimator = model_for(method)
-            estimator.fit(x_train, y_train)
-            raw = max(0.0, float(estimator.predict(x_test)[0]))
-            correction = float(np.mean(raw_history[method])) if len(raw_history[method]) >= 4 else 0.0
-            errors[method].append(max(0.0, raw + correction) - actual)
-            raw_history[method].append(actual - raw)
+        estimator = model_for()
+        estimator.fit(x_train, y_train)
+        raw = max(0.0, float(estimator.predict(x_test)[0]))
+        correction = float(np.mean(raw_history)) if len(raw_history) >= 4 else 0.0
+        errors.append(max(0.0, raw + correction) - actual)
+        raw_history.append(actual - raw)
 
     scores = {}
     latest_origin = count - 1
     x_train = np.asarray([weekly_features(values, origin, start_date) for origin in completed_origins])
     y_train = np.asarray([sum(values[origin + 1 : origin + 8]) for origin in completed_origins])
     latest_features = np.asarray([weekly_features(values, latest_origin, start_date)])
-    for method in WEEKLY_METHODS:
-        method_errors = errors[method]
-        if method == "previous_week":
-            prediction = sum(values[-7:])
-            correction = 0.0
-        else:
-            estimator = model_for(method)
-            estimator.fit(x_train, y_train)
-            raw = max(0.0, float(estimator.predict(latest_features)[0]))
-            correction = float(np.mean(raw_history[method])) if len(raw_history[method]) >= 4 else 0.0
-            prediction = max(0.0, raw + correction)
-        scores[method] = {
-            "predicted_cases": round(prediction, 2),
-            "mae_cases": round(float(np.mean(np.abs(method_errors))), 2),
-            "bias_cases": round(float(np.mean(method_errors)), 2),
-            "backtest_points": len(method_errors),
-            "correction_cases": round(correction, 2),
-        }
+    estimator = model_for()
+    estimator.fit(x_train, y_train)
+    raw = max(0.0, float(estimator.predict(latest_features)[0]))
+    correction = float(np.mean(raw_history)) if len(raw_history) >= 4 else 0.0
+    prediction = max(0.0, raw + correction)
+    scores[METHOD] = {
+        "predicted_cases": round(prediction, 2),
+        "mae_cases": round(float(np.mean(np.abs(errors))), 2),
+        "bias_cases": round(float(np.mean(errors)), 2),
+        "backtest_points": len(errors),
+        "correction_cases": round(correction, 2),
+    }
 
-    best = min(WEEKLY_METHODS, key=lambda method: scores[method]["mae_cases"])
-    return {"available": True, "best_method": best, "methods": scores, "week_start": str(start_date + timedelta(days=count)), "week_end": str(start_date + timedelta(days=count + 6))}
+    return {"available": True, "best_method": METHOD, "methods": scores, "week_start": str(start_date + timedelta(days=count)), "week_end": str(start_date + timedelta(days=count + 6))}
 
 
 def forecast_horizon(values, horizon):
@@ -123,8 +107,8 @@ def forecast_horizon(values, horizon):
         return {"available": False, "reason": "Not enough historical evaluation points."}
 
     folds = [int(count * fraction) for fraction in (0.55, 0.7, 0.85)]
-    actual_by_method = {method: [] for method in METHODS}
-    predicted_by_method = {method: [] for method in METHODS}
+    actual_values = []
+    predicted_values = []
 
     for cutoff in folds:
         training_origins = [origin for origin in origins if origin + horizon < cutoff]
@@ -136,37 +120,31 @@ def forecast_horizon(values, horizon):
         x_test = np.asarray([features(values, origin) for origin in testing_origins])
         actuals = [sum(values[origin + 1 : origin + horizon + 1]) for origin in testing_origins]
 
-        for method in METHODS:
-            estimator = model_for(method)
-            estimator.fit(x_train, y_train)
-            predictions = estimator.predict(x_test)
-            actual_by_method[method].extend(actuals)
-            predicted_by_method[method].extend(max(0.0, float(prediction)) for prediction in predictions)
+        estimator = model_for()
+        estimator.fit(x_train, y_train)
+        predictions = estimator.predict(x_test)
+        actual_values.extend(actuals)
+        predicted_values.extend(max(0.0, float(prediction)) for prediction in predictions)
 
-    if len(actual_by_method[METHODS[0]]) < 12:
+    if len(actual_values) < 12:
         return {"available": False, "reason": "At least 12 chronological backtest points are required."}
 
-    scores = {}
-    for method in METHODS:
-        errors = [prediction - actual for prediction, actual in zip(predicted_by_method[method], actual_by_method[method])]
-        scores[method] = {
-            "mae_cases": round(sum(abs(error) for error in errors) / len(errors), 2),
-            "bias_cases": round(sum(errors) / len(errors), 2),
-            "backtest_points": len(errors),
-        }
-
-    best = min(METHODS, key=lambda method: scores[method]["mae_cases"])
+    errors = [prediction - actual for prediction, actual in zip(predicted_values, actual_values)]
+    scores = {METHOD: {
+        "mae_cases": round(sum(abs(error) for error in errors) / len(errors), 2),
+        "bias_cases": round(sum(errors) / len(errors), 2),
+        "backtest_points": len(errors),
+    }}
     latest_features = np.asarray([features(values, count - 1)])
-    for method in METHODS:
-        estimator = model_for(method)
-        estimator.fit(
-            np.asarray([features(values, origin) for origin in origins]),
-            np.asarray([sum(values[origin + 1 : origin + horizon + 1]) for origin in origins]),
-        )
-        estimate = estimator.predict(latest_features)[0]
-        scores[method]["predicted_cases"] = round(max(0.0, float(estimate)), 2)
+    estimator = model_for()
+    estimator.fit(
+        np.asarray([features(values, origin) for origin in origins]),
+        np.asarray([sum(values[origin + 1 : origin + horizon + 1]) for origin in origins]),
+    )
+    estimate = estimator.predict(latest_features)[0]
+    scores[METHOD]["predicted_cases"] = round(max(0.0, float(estimate)), 2)
 
-    return {"available": True, "best_method": best, "methods": scores}
+    return {"available": True, "best_method": METHOD, "methods": scores}
 
 
 def main():

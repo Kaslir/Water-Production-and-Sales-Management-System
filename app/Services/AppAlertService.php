@@ -115,7 +115,7 @@ class AppAlertService
             ->where('created_at', '>=', $activatedAt)
             ->whereDate('origin_date', $today->toDateString())
             ->where('horizon_days', 7)
-            ->whereIn('method', ['random_forest', 'gradient_boosting'])
+            ->where('method', 'random_forest')
             ->orderByDesc('id')->get()
             ->filter(fn ($forecast) => ($forecast->evaluation['selected'] ?? false) === true && ($forecast->evaluation['mode'] ?? null) === 'current')
             ->unique('product_id');

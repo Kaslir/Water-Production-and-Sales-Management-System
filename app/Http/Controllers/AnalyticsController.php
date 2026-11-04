@@ -11,9 +11,9 @@ class AnalyticsController extends Controller
 {
     public function index(Request $request): View
     {
-        $period = $request->query('period', 'all');
+        $period = $request->query('period', '6months');
         if (! in_array($period, ['week', 'month', '3months', '6months', 'year', 'all'], true)) {
-            $period = 'all';
+            $period = '6months';
         }
 
         $latestRecorded = collect([
