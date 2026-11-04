@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Customer;
 use App\Models\Product;
+use App\Models\ProductManufacturingPolicy;
 use App\Models\SalesOrder;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -37,13 +38,20 @@ class ProductPricingPageTest extends TestCase
 
         $this->actingAs($manager)->post(route('packaged.products.price', $product), [
             'default_price_per_case' => 700,
+            'reason' => 'Approved quarterly price review',
         ])->assertRedirect(route('packaged.pricing.index'));
 
         $this->assertSame(700.0, (float) $product->fresh()->default_price_per_case);
         $this->assertSame(620.0, (float) $order->items()->firstOrFail()->price_per_case);
         $this->assertDatabaseHas('audit_logs', ['event' => 'product.price_changed', 'subject_id' => $product->id]);
+        $this->actingAs($manager)->get(route('packaged.pricing.index'))
+            ->assertOk()
+            ->assertSee('Price History')
+            ->assertSee('KSh 620.00')
+            ->assertSee('KSh 700.00')
+            ->assertSee('Approved quarterly price review');
         $this->actingAs($manager)->get(route('packaged.orders.create'))->assertOk()->assertSee('value="700.00"', false);
-        $this->actingAs($manager)->get(route('packaged.batches.index'))
+        $this->actingAs($manager)->get(route('inventory.index', ['tab' => 'batches']))
             ->assertOk()->assertDontSee('Set price')->assertDontSee('Cost / case');
     }
 
@@ -56,5 +64,45 @@ class ProductPricingPageTest extends TestCase
         $this->actingAs($staff)->post(route('packaged.products.price', $product), [
             'default_price_per_case' => 700,
         ])->assertForbidden();
+    }
+
+    public function test_price_requires_a_positive_amount_with_no_more_than_two_decimal_places(): void
+    {
+        $manager = $this->user('manager');
+        $product = Product::where('sku', 'WATER-1L')->firstOrFail();
+
+        $this->actingAs($manager)->post(route('packaged.products.price', $product), [
+            'default_price_per_case' => '12.345',
+        ])->assertSessionHasErrors('default_price_per_case');
+        $this->actingAs($manager)->post(route('packaged.products.price', $product), [
+            'default_price_per_case' => '0',
+        ])->assertSessionHasErrors('default_price_per_case');
+        $this->assertDatabaseMissing('audit_logs', ['event' => 'product.price_changed', 'subject_id' => $product->id]);
+    }
+
+    public function test_margin_uses_only_an_effective_approved_manufacturing_policy(): void
+    {
+        $manager = $this->user('manager');
+        $product = Product::where('sku', 'WATER-5L')->firstOrFail();
+        $product->update(['default_price_per_case' => '100.00']);
+        $this->actingAs($manager)->get(route('packaged.pricing.index'))
+            ->assertOk()->assertSee('Cost not configured');
+
+        ProductManufacturingPolicy::create([
+            'product_id' => $product->id,
+            'effective_from' => today()->toDateString(),
+            'shelf_life_days' => 120,
+            'shelf_life_evidence' => 'Approved study REF-100',
+            'water_treatment_per_case' => 10,
+            'bottle_per_case' => 20,
+            'inbound_transport_per_case' => 3,
+            'cap_label_per_case' => 4,
+            'labour_per_case' => 5,
+            'electricity_per_case' => 6,
+            'other_production_per_case' => 2,
+            'approved_by' => $manager->user_id,
+        ]);
+        $this->actingAs($manager)->get(route('packaged.pricing.index'))
+            ->assertOk()->assertSee('KSh 50.00')->assertSee('50.0%');
     }
 }
