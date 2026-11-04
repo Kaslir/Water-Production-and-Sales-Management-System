@@ -26,9 +26,12 @@ class ProfileTest extends TestCase
             ->assertOk()
             ->assertSee('Test Person')
             ->assertSee('person@example.test')
+            ->assertSee('Personal Information')
+            ->assertSee('Account Security')
             ->assertSee('Contact an administrator if you need to change your name, email address, or role.')
             ->assertSee('Reset password')
             ->assertSee('If you need help changing your password, contact an administrator.')
+            ->assertDontSee('Email verified')
             ->assertDontSee('Save name')
             ->assertDontSee('New email');
         $this->actingAs($user)->get(route('password.request'))->assertOk()->assertSee('person@example.test');
@@ -74,10 +77,21 @@ class ProfileTest extends TestCase
     public function test_administrator_can_update_own_name_without_changing_role(): void
     {
         $user = $this->user('administrator');
+        $this->actingAs($user)->get(route('profile.show'))->assertOk()
+            ->assertSee('Edit Name')->assertSee('Change Email')
+            ->assertSee('profile-name-editor')->assertSee('profile-email-editor');
         $this->actingAs($user)->patch(route('profile.update'), ['name' => 'New Name', 'role' => 'administrator'])->assertRedirect();
         $this->assertSame('New Name', $user->fresh()->name);
         $this->assertSame('administrator', $user->fresh()->role);
         $this->assertDatabaseHas('audit_logs', ['event' => 'user.profile_updated', 'actor_id' => $user->user_id]);
+    }
+
+    public function test_verified_indicator_only_appears_after_email_verification(): void
+    {
+        $user = $this->user();
+        $this->actingAs($user)->get(route('profile.show'))->assertOk()->assertDontSee('Email verified');
+        $user->forceFill(['email_verified_at' => now()])->save();
+        $this->actingAs($user->fresh())->get(route('profile.show'))->assertOk()->assertSee('Email verified');
     }
 
     public function test_email_changes_only_after_code_verification(): void
