@@ -16,7 +16,18 @@
             <div class="col-md-3"><div class="metric"><span class="metric-label">{{ $stock->name }}</span><span class="metric-value">{{ number_format($stock->cases) }} cases</span></div></div>
         @endforeach
     </div>
-    <div class="panel"><p class="mb-0 small">Available stock includes only released, unexpired cases not reserved for confirmed orders. Stock leaves inventory once, at dispatch.</p></div>
+    <div class="panel mb-3"><p class="mb-0 small">Available stock includes only released, unexpired cases not reserved for confirmed orders. Stock leaves inventory once, at dispatch.</p></div>
+    <div class="panel">
+        <h6>Stock nearing expiry</h6>
+        <p class="tiny">Released batches with cases on hand that expire within the next 30 days.</p>
+        <div class="table-responsive"><table class="table mb-0"><thead><tr><th>Batch</th><th>Product</th><th>Expiry</th><th>Cases on hand</th></tr></thead><tbody>
+            @forelse($nearExpiry as $batch)
+                <tr><td><a href="{{ route('packaged.batches.show', $batch) }}">{{ $batch->batch_code }}</a></td><td>{{ $batch->product->name }}</td><td>{{ $batch->expires_on->format('d M Y') }}</td><td>{{ number_format($batch->cases_on_hand) }}</td></tr>
+            @empty
+                <tr><td colspan="4">No batches nearing expiry.</td></tr>
+            @endforelse
+        </tbody></table></div>
+    </div>
 @else
     @if($tab === 'batches')
         <div class="panel mb-3 d-flex justify-content-between align-items-center"><div><strong>Production batches</strong><div class="tiny">Open a batch to review its quality result, trace deliveries, or manage a recall or disposal.</div></div>@if(auth()->user()->hasRole('administrator', 'manager', 'production_staff'))<a class="btn btn-brand" href="{{ route('packaged.batches.create') }}">Record batch</a>@endif</div>

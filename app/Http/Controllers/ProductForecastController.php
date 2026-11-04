@@ -20,8 +20,12 @@ use RuntimeException;
 
 class ProductForecastController extends Controller
 {
-    public function index(ProductForecastService $service): View
+    public function index(Request $request, ProductForecastService $service): View
     {
+        $tab = $request->validate(['tab' => ['nullable', 'in:forecasts,plans']])['tab'] ?? 'forecasts';
+        if ($tab === 'plans' && ! $request->user()->hasRole('administrator', 'manager')) {
+            $tab = 'forecasts';
+        }
         $products = Product::query()->orderBy('volume_ml')->get();
         $latestForecasts = ProductForecast::query()
             ->where('method', 'random_forest')
@@ -32,8 +36,6 @@ class ProductForecastController extends Controller
             });
         $latestOrderDate = SalesOrder::max('ordered_on');
         $stock = ProductionBatch::query()->where('status', 'released')->whereDate('expires_on', '>', today())->get()->groupBy('product_id')->map(fn ($batches) => $batches->sum(fn ($batch) => $batch->cases_on_hand - $batch->cases_reserved));
-        $nearExpiry = ProductionBatch::query()->with('product')->where('status', 'released')->where('cases_on_hand', '>', 0)
-            ->whereDate('expires_on', '>=', today())->whereDate('expires_on', '<=', today()->addDays(30))->orderBy('expires_on')->get();
         $planning = [];
         foreach ($latestForecasts as $productId => $forecasts) {
             foreach ([7, 30] as $days) {
@@ -69,7 +71,7 @@ class ProductForecastController extends Controller
                 return ['product' => $forecast->product->name, 'week_start' => $weekStart, 'week_end' => $weekEnd, 'predicted_cases' => (float) $forecast->predicted_cases, 'actual_cases' => $actualCases, 'error_cases' => (float) $forecast->predicted_cases - $actualCases];
             })->filter()->take(12);
 
-        return view('packaged.forecasts', compact('products', 'latestForecasts', 'latestOrderDate', 'stock', 'nearExpiry', 'planning', 'completedEvaluations'));
+        return view('packaged.forecasts', compact('tab', 'products', 'latestForecasts', 'latestOrderDate', 'stock', 'planning', 'completedEvaluations'));
     }
 
     public function run(Request $request, ProductForecastService $service, AuditTrail $auditTrail, AppAlertService $alerts): RedirectResponse

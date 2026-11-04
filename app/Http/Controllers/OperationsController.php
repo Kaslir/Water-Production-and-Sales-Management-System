@@ -124,8 +124,13 @@ class OperationsController extends Controller
         })->select('products.name')->selectRaw('COALESCE(SUM(production_batches.cases_on_hand - production_batches.cases_reserved), 0) as cases')
             ->groupBy('products.id', 'products.name')->orderBy('products.volume_ml')->get();
         $availableCases = $stockByProduct->sum('cases');
+        $nearExpiry = $tab === 'stock'
+            ? ProductionBatch::query()->with('product')->where('status', 'released')->where('cases_on_hand', '>', 0)
+                ->whereDate('expires_on', '>=', today())->whereDate('expires_on', '<=', today()->addDays(30))
+                ->orderBy('expires_on')->get()
+            : collect();
 
-        return view('operations.inventory', compact('tab', 'filters', 'rows', 'stockByProduct', 'availableCases'));
+        return view('operations.inventory', compact('tab', 'filters', 'rows', 'stockByProduct', 'availableCases', 'nearExpiry'));
     }
 
     private function packagedIndex(Request $request, string $type): View

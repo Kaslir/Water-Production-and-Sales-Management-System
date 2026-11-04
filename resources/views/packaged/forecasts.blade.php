@@ -2,8 +2,16 @@
 @section('page-title', 'Production planning')
 @section('content')
 @php($lastOrder = $latestOrderDate ? \Carbon\Carbon::parse($latestOrderDate) : null)
-<div class="alert alert-info">Random Forest estimates demand for each bottled-water product. The 7-day estimate covers Monday through Sunday and uses a correction from earlier completed weeks. The 30-day estimate is an exploratory longer-range view. The demonstration dataset is synthetic, so its scores do not prove accuracy at a real company. @if($lastOrder)Last recorded order: {{ $lastOrder->format('d M Y') }}.@endif</div>
 @if($lastOrder && $lastOrder->lt(today()->subDays(14)))<div class="alert alert-warning">There are no recent orders for a current forecast. You may evaluate the historical dataset as of {{ $lastOrder->format('d M Y') }}. Those dated estimates are a demonstration, not a prediction for today.</div>@endif
+<div class="panel mb-3 pb-0">
+    <nav class="nav nav-tabs border-0" aria-label="Production planning sections">
+        <a class="nav-link {{ $tab === 'forecasts' ? 'active' : '' }}" href="{{ route('packaged.forecasts.index', ['tab' => 'forecasts']) }}" @if($tab === 'forecasts') aria-current="page" @endif>Forecasts</a>
+        @if(auth()->user()->hasRole('administrator', 'manager'))
+            <a class="nav-link {{ $tab === 'plans' ? 'active' : '' }}" href="{{ route('packaged.forecasts.index', ['tab' => 'plans']) }}" @if($tab === 'plans') aria-current="page" @endif>Approve a current production plan</a>
+        @endif
+    </nav>
+</div>
+@if($tab === 'forecasts')
 <div class="row g-3">
 @foreach($products as $product)
     @php($group = $latestForecasts[$product->id] ?? collect())
@@ -31,9 +39,10 @@
 @endforeach
 </div>
 <div class="panel mt-3"><h6>Completed current forecasts</h6><p class="tiny">When a week finishes, recorded orders are compared with the forecast saved before that week. Negative error means demand was underestimated. Historical demonstrations are excluded.</p><table class="table"><thead><tr><th>Product</th><th>Week</th><th>Forecast cases</th><th>Actual cases</th><th>Error cases</th></tr></thead><tbody>@forelse($completedEvaluations as $evaluation)<tr><td>{{ $evaluation['product'] }}</td><td>{{ $evaluation['week_start']->format('d M Y') }}–{{ $evaluation['week_end']->format('d M Y') }}</td><td>{{ number_format($evaluation['predicted_cases'], 0) }}</td><td>{{ number_format($evaluation['actual_cases']) }}</td><td>{{ number_format($evaluation['error_cases'], 1) }}</td></tr>@empty<tr><td colspan="5">No completed current forecast is available yet. Record new orders and evaluate a current week to begin this check.</td></tr>@endforelse</tbody></table></div>
-<div class="panel mt-3"><h6>Stock nearing expiry</h6><table class="table"><thead><tr><th>Batch</th><th>Product</th><th>Expiry</th><th>Cases</th></tr></thead><tbody>@forelse($nearExpiry as $batch)<tr><td>{{ $batch->batch_code }}</td><td>{{ $batch->product->name }}</td><td>{{ $batch->expires_on->format('d M Y') }}</td><td>{{ number_format($batch->cases_on_hand) }}</td></tr>@empty<tr><td colspan="4">No near-expiry batches.</td></tr>@endforelse</tbody></table></div>
-@if(auth()->user()->hasRole('administrator', 'manager'))
-<div class="panel mt-3"><h6>Approve a current production plan</h6><p class="tiny">Only current forecasts can become plans. A new approval replaces the previous unfinished plan for that product. Link the resulting batch to the plan when recording production.</p>
+@endif
+@if($tab === 'plans' && auth()->user()->hasRole('administrator', 'manager'))
+<div class="panel"><h6>Approve a current production plan</h6><p class="tiny">Only current forecasts can become plans. A new approval replaces the previous unfinished plan for that product. Link the resulting batch to the plan when recording production.</p>
+    @if(empty($planning))<p class="mb-3">No current forecast is ready for approval. Run a forecast from the Forecasts tab first.</p>@endif
     @foreach($products as $product)@foreach([7] as $days)
         @php($selected = ($latestForecasts[$product->id] ?? collect())->first(fn ($row) => $row->horizon_days == $days && ($row->evaluation['selected'] ?? false) && \Carbon\CarbonImmutable::parse($row->origin_date)->lt(today()) && \Carbon\CarbonImmutable::parse($row->origin_date)->addDays(7)->gte(today()) && ($row->evaluation['mode'] ?? null) === 'current'))
         @php($plan = $planning[$product->id][$days] ?? null)
