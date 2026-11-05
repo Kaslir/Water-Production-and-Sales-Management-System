@@ -13,10 +13,10 @@
     .sidebar{padding:16px 10px 10px;overflow:hidden}
     .brand{padding:0 5px;margin-bottom:10px;flex:none}
     .sidebar-nav{flex:1;min-height:0;overflow-y:auto;scrollbar-width:thin;display:flex;flex-direction:column;justify-content:space-between;padding-bottom:8px}
-    .nav-heading{margin:14px 10px 5px}
+    .nav-heading{margin:10px 10px 4px}
     .sidebar-section{flex:none}
-    .sidebar-section+.sidebar-section{margin-top:8px}
-    .side-link{padding:clamp(8px,1.25vh,12px) 10px;margin:1px 0;line-height:1.2}
+    .sidebar-section+.sidebar-section{margin-top:5px}
+    .side-link{padding:clamp(6px,1vh,10px) 10px;margin:1px 0;line-height:1.2}
     .sidebar-bottom{flex:none;margin-top:0;padding-top:7px}
     .sidebar-bottom .profile{padding:6px 8px}
     .sidebar-bottom .side-link{margin:1px 0}
@@ -44,8 +44,7 @@
         <nav aria-label="Planning and insights">
             <a class="side-link {{ request()->routeIs('packaged.forecasts.*') ? 'active' : '' }}" href="{{ route('packaged.forecasts.index') }}"><i class="bi bi-stars"></i>Production planning</a>
         @if (auth()->user()->hasRole('administrator', 'manager'))
-            <a class="side-link {{ request()->routeIs('analytics.*') ? 'active' : '' }}" href="{{ route('analytics.index') }}"><i class="bi bi-graph-up-arrow"></i>Analytics</a>
-            <a class="side-link {{ request()->routeIs('reports.*') ? 'active' : '' }}" href="{{ route('reports.index') }}"><i class="bi bi-file-earmark-bar-graph"></i>Reports</a>
+            <a class="side-link {{ request()->routeIs('analytics.*', 'reports.*') ? 'active' : '' }}" href="{{ route('analytics.index') }}"><i class="bi bi-graph-up-arrow"></i>Insights</a>
         @endif
             <a class="side-link {{ request()->routeIs('packaged.reports.*') ? 'active' : '' }}" href="{{ route('packaged.reports.index') }}"><i class="bi bi-cash-stack"></i>Profit &amp; expiry</a>
         </nav>

@@ -1,6 +1,7 @@
 @extends('layouts.app')
-@section('page-title', 'Reports')
+@section('page-title', 'Insights')
 @section('content')
+@include('insights.tabs')
 <form class="toolbar mb-3" method="get" action="{{ route('reports.index') }}">
     <label class="form-label mb-0" for="report-type">Report</label>
     <select id="report-type" class="form-select w-auto" name="type">

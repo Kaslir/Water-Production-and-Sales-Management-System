@@ -1,6 +1,7 @@
 @extends('layouts.app')
-@section('page-title', 'Analytics')
+@section('page-title', 'Insights')
 @section('content')
+@include('insights.tabs')
 <form method="get" action="{{ route('analytics.index') }}" class="toolbar mb-3">
     <label for="analytics-period" class="form-label mb-0">Time:</label>
     <select id="analytics-period" name="period" class="form-select w-auto">
