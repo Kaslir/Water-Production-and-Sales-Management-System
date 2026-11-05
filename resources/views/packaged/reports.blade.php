@@ -27,7 +27,7 @@
 <div class="row g-3 mb-3">
     <div class="col-sm-6 col-xl-3">
         <div class="panel h-100 d-flex flex-column">
-            <div class="small text-uppercase fw-semibold text-muted">Net Sales</div>
+            <div class="small text-uppercase fw-semibold text-muted">Total invoiced revenue after credits</div>
             <div class="small text-muted mb-3">Selected period</div>
             <div class="fs-4 fw-bold mt-auto">KSh {{ number_format($revenue, 2) }}</div>
         </div>
@@ -63,9 +63,13 @@
     </div>
     <div class="row g-0">
         <div class="col-lg-6 pe-lg-3">
+            <div class="d-flex justify-content-between gap-3 border-bottom py-2"><span>Bottled-water sales after product credits</span><strong>KSh {{ number_format($bottledRevenue, 2) }}</strong></div>
+            <div class="d-flex justify-content-between gap-3 border-bottom py-2"><span>Customer delivery fees after approved credits</span><strong>KSh {{ number_format($deliveryFeeRevenue, 2) }}</strong></div>
             <div class="d-flex justify-content-between gap-3 border-bottom py-2"><span>Customer return credits</span><strong>KSh {{ number_format($credits, 2) }}</strong></div>
+            <div class="d-flex justify-content-between gap-3 border-bottom py-2"><span>Approved delivery-fee credits</span><strong>KSh {{ number_format($deliveryFeeCreditsTotal, 2) }}</strong></div>
             <div class="d-flex justify-content-between gap-3 border-bottom py-2"><span>Cost of goods sold</span><strong>KSh {{ number_format($costOfGoodsSold, 2) }}</strong></div>
-            <div class="d-flex justify-content-between gap-3 border-bottom py-2"><span>Delivery expense</span><strong>KSh {{ number_format($deliveryCost, 2) }}</strong></div>
+            <div class="d-flex justify-content-between gap-3 border-bottom py-2"><span>Shared truck trip expenses</span><strong>KSh {{ number_format($tripExpenses, 2) }}</strong></div>
+            @if($deliveryCost > 0)<div class="d-flex justify-content-between gap-3 border-bottom py-2"><span>Historical order delivery expenses</span><strong>KSh {{ number_format($deliveryCost, 2) }}</strong></div>@endif
         </div>
         <div class="col-lg-6 ps-lg-3">
             <div class="d-flex justify-content-between gap-3 border-bottom py-2"><span>Other operating expense</span><strong>KSh {{ number_format($operatingExpenses, 2) }}</strong></div>
@@ -76,7 +80,7 @@
             <div class="d-flex justify-content-between gap-3 border-bottom py-2"><span>Actual cost variance for batches with a closeout</span><strong>KSh {{ number_format($actualCostVariance, 2) }}</strong></div>
         </div>
     </div>
-    <p class="small text-muted mt-2 mb-0">Actual cost variance is shown for review and is not included again in estimated profit. Refunds change cash and receivables; return credits already reduce net sales.</p>
+    <p class="small text-muted mt-2 mb-0">Delivery fees are revenue; each truck trip's fuel and other expenses are counted once. Historical order delivery expenses are separate. Actual cost variance is shown for review and is not included again in estimated profit. Refunds change cash and receivables; approved credits already reduce revenue.</p>
     @if(auth()->user()->hasRole('administrator','manager') && $expenses->isNotEmpty())
     <details class="mt-3"><summary>Recorded operating expenses and corrections</summary>
         @foreach($expenses as $expense)<div class="border-top py-2">{{ $expense->expense_date->format('d M Y') }} · {{ $expense->category }} · KSh {{ number_format($expense->amount, 2) }} @if($expense->reversed_at)<span class="badge bg-secondary">Reversed</span> {{ $expense->reversal_reason }}@else<form class="d-flex gap-2 mt-2" method="post" action="{{ route('packaged.expenses.reverse', $expense) }}">@csrf<input class="form-control" name="reason" placeholder="Correction reason" required><button class="btn btn-outline-danger" onclick="return confirm('Reverse this expense?')">Reverse</button></form>@endif</div>@endforeach
@@ -130,12 +134,12 @@
         <div class="tab-pane fade show active" id="invoices-report" role="tabpanel" aria-labelledby="invoices-tab" tabindex="0">
             <div class="table-responsive">
                 <table class="table align-middle mb-0">
-                    <thead><tr><th>Invoice</th><th>Customer</th><th>Issued</th><th>Amount (KSh)</th><th>Paid (KSh)</th></tr></thead>
+                    <thead><tr><th>Invoice</th><th>Customer</th><th>Issued</th><th>Water after discount (KSh)</th><th>Delivery fee (KSh)</th><th>Total (KSh)</th><th>Paid (KSh)</th></tr></thead>
                     <tbody>
                         @forelse($invoices as $invoice)
-                            <tr><td><a href="{{ route('packaged.orders.show', $invoice->order) }}">{{ $invoice->invoice_number }}</a></td><td>{{ $invoice->order->customer->name }}</td><td>{{ $invoice->issued_on->format('d M Y') }}</td><td>{{ number_format($invoice->amount, 2) }}</td><td>{{ number_format($invoice->activePayments->sum('amount'), 2) }}</td></tr>
+                            <tr><td><a href="{{ route('packaged.orders.show', $invoice->order) }}">{{ $invoice->invoice_number }}</a></td><td>{{ $invoice->order->customer->name }}</td><td>{{ $invoice->issued_on->format('d M Y') }}</td><td>{{ number_format((float)$invoice->amount - (float)$invoice->order->delivery_fee, 2) }}</td><td>{{ number_format($invoice->order->delivery_fee, 2) }}@if($invoice->deliveryFeeCredit)<div class="tiny">Credited KSh {{ number_format($invoice->deliveryFeeCredit->amount, 2) }}</div>@endif</td><td>{{ number_format($invoice->amount, 2) }}</td><td>{{ number_format($invoice->activePayments->sum('amount'), 2) }}</td></tr>
                         @empty
-                            <tr><td colspan="5" class="text-center text-muted py-4">No invoices were issued in the selected period.</td></tr>
+                            <tr><td colspan="7" class="text-center text-muted py-4">No invoices were issued in the selected period.</td></tr>
                         @endforelse
                     </tbody>
                 </table>
@@ -158,7 +162,7 @@
         <div class="tab-pane fade" id="customers-report" role="tabpanel" aria-labelledby="customers-tab" tabindex="0">
             <div class="table-responsive">
                 <table class="table align-middle mb-0">
-                    <thead><tr><th>Customer</th><th>Sales (KSh)</th><th>Delivery cost (KSh)</th><th>Contribution (KSh)</th></tr></thead>
+                    <thead><tr><th>Customer</th><th>Invoiced revenue after credits (KSh)</th><th>Historical order delivery expense (KSh)</th><th>Contribution before shared trip expense (KSh)</th></tr></thead>
                     <tbody>
                         @forelse($customerPerformance as $row)
                             <tr><td>{{ $row['name'] }}</td><td>{{ number_format($row['revenue'], 2) }}</td><td>{{ number_format($row['delivery'], 2) }}</td><td>{{ number_format($row['revenue'] - $row['cost'] - $row['delivery'], 2) }}</td></tr>
@@ -168,6 +172,7 @@
                     </tbody>
                 </table>
             </div>
+            <p class="small text-muted mb-0">Shared truck expenses are not allocated to individual customers. The trip total appears once in the financial breakdown.</p>
         </div>
     </div>
 </section>

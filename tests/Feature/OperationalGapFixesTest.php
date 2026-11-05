@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Customer;
+use App\Models\DeliveryArea;
 use App\Models\Product;
 use App\Models\ProductForecast;
 use App\Models\ProductionBatch;
@@ -72,7 +73,7 @@ class OperationalGapFixesTest extends TestCase
         $staff = $this->user('sales_staff');
         $customer = Customer::create(['name' => 'Hotel', 'phone_number' => '0712345678']);
         $product = Product::where('sku', 'WATER-500ML')->firstOrFail();
-        $payload = ['customer_id' => $customer->customer_id, 'delivery_address' => 'Nairobi', 'requested_delivery_on' => today()->addDay()->toDateString(), 'delivery_cost' => 0, 'items' => [['product_id' => $product->id, 'cases_ordered' => 2, 'price_per_case' => (float) $product->default_price_per_case + 1]]];
+        $payload = ['customer_id' => $customer->customer_id, 'delivery_address' => 'Westlands', 'delivery_area_id' => DeliveryArea::where('name', 'Westlands')->value('id'), 'requested_delivery_on' => today()->addDay()->toDateString(), 'items' => [['product_id' => $product->id, 'cases_ordered' => 2, 'price_per_case' => (float) $product->default_price_per_case + 1]]];
 
         $this->actingAs($staff)->post(route('packaged.orders.store'), $payload)->assertSessionHasErrors('price_override_reason');
         $this->assertDatabaseCount('sales_orders', 0);

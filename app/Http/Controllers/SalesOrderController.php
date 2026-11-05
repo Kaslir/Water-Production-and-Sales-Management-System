@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Customer;
+use App\Models\DeliveryArea;
 use App\Models\DispatchLine;
 use App\Models\Invoice;
 use App\Models\Payment;
@@ -24,11 +25,13 @@ class SalesOrderController extends Controller
         return view('packaged.orders', ['orders' => SalesOrder::query()->with('customer')->orderByDesc('id')->paginate(20)]);
     }
 
-    public function create(): View
+    public function create(Request $request): View
     {
         return view('packaged.order-create', [
             'customers' => Customer::query()->orderBy('name')->get(),
             'products' => Product::query()->where('is_active', true)->orderBy('volume_ml')->get(),
+            'areas' => DeliveryArea::query()->with('zone')->where('county', 'Nairobi')->whereHas('zone', fn ($query) => $query->where('county', 'Nairobi')->where('is_active', true))->orderBy('name')->get(),
+            'selectedCustomerId' => $request->query('customer_id'),
         ]);
     }
 
@@ -40,7 +43,7 @@ class SalesOrderController extends Controller
             'delivery_address' => ['required', 'string', 'max:255'],
             'requested_delivery_on' => ['required', 'date', 'after_or_equal:today'],
             'discount' => ['nullable', 'numeric', 'min:0', 'decimal:0,2'],
-            'delivery_cost' => ['required', 'numeric', 'min:0', 'decimal:0,2'],
+            'delivery_area_id' => ['required', 'integer', 'exists:delivery_areas,id'],
             'price_override_reason' => ['nullable', 'string', 'max:500'],
             'notes' => ['nullable', 'string', 'max:2000'],
             'items' => ['required', 'array', 'min:1'],
@@ -60,6 +63,10 @@ class SalesOrderController extends Controller
         if (($hasPriceOverride || (float) ($data['discount'] ?? 0) > 0) && blank($data['price_override_reason'] ?? null)) {
             throw ValidationException::withMessages(['price_override_reason' => 'Give a reason for the changed price or discount.']);
         }
+        $area = DeliveryArea::query()->with('zone')->findOrFail($data['delivery_area_id']);
+        if ($area->county !== 'Nairobi' || $area->zone->county !== 'Nairobi' || ! $area->zone->is_active) {
+            throw ValidationException::withMessages(['delivery_area_id' => 'Choose an active Nairobi delivery area.']);
+        }
         $order = $service->createOrder($data, $request->user()->user_id);
 
         return redirect()->route('packaged.orders.show', $order)->with('status', 'Order saved as draft.');
@@ -67,7 +74,7 @@ class SalesOrderController extends Controller
 
     public function show(SalesOrder $order): View
     {
-        $order->load(['customer', 'items.product', 'items.reservations.batch', 'dispatch.lines.batch', 'invoice.payments', 'invoice.activePayments', 'invoice.refunds', 'invoice.returns']);
+        $order->load(['customer', 'deliveryArea', 'deliveryZone', 'deliveryTrips', 'items.product', 'items.reservations.batch', 'dispatch.lines.batch', 'invoice.payments', 'invoice.activePayments', 'invoice.refunds', 'invoice.returns', 'invoice.deliveryFeeCredit']);
 
         return view('packaged.order-show', compact('order'));
     }
@@ -98,7 +105,7 @@ class SalesOrderController extends Controller
 
     public function dispatch(Request $request, SalesOrder $order, PackagedWaterService $service): RedirectResponse
     {
-        $data = $request->validate(['delivery_reference' => ['required', 'string', 'max:120']]);
+        $data = $request->validate(['delivery_reference' => ['required', 'string', 'max:120'], 'cases' => ['prohibited']]);
         $service->dispatchOrder($order, $request->user()->user_id, $data['delivery_reference']);
 
         return back()->with('status', 'Order dispatched; stock deducted once.');
@@ -141,6 +148,14 @@ class SalesOrderController extends Controller
         $service->recordRefund($invoice, $data, $request->user()->user_id);
 
         return back()->with('status', 'Customer refund recorded and linked to this invoice.');
+    }
+
+    public function creditDeliveryFee(Request $request, Invoice $invoice, PackagedWaterService $service): RedirectResponse
+    {
+        $data = $request->validate(['reason' => ['required', 'string', 'max:500']]);
+        $service->approveDeliveryFeeCredit($invoice, $data['reason'], $request->user()->user_id);
+
+        return back()->with('status', 'Delivery fee credited once. Any overpayment is shown for refund.');
     }
 
     public function reversePayment(Request $request, Payment $payment, PackagedWaterService $service): RedirectResponse

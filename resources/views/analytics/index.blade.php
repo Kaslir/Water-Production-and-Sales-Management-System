@@ -13,7 +13,7 @@
 <div class="row g-3 mb-3">
     <div class="col-md-3"><div class="metric"><span class="metric-label">CASES ORDERED</span><span class="metric-value">{{ number_format($totalCasesOrdered) }}</span></div></div>
     <div class="col-md-3"><div class="metric"><span class="metric-label">LITRES ORDERED</span><span class="metric-value">{{ number_format($totalLitresOrdered) }} L</span></div></div>
-    <div class="col-md-3"><div class="metric"><span class="metric-label">INVOICED SALES</span><span class="metric-value">KSh {{ number_format($totalInvoiced) }}</span></div></div>
+    <div class="col-md-3"><div class="metric"><span class="metric-label">TOTAL INVOICED (WATER + DELIVERY)</span><span class="metric-value">KSh {{ number_format($totalInvoiced) }}</span></div></div>
     <div class="col-md-3"><div class="metric"><span class="metric-label">AVERAGE CASES / RECORDED ORDER DAY</span><span class="metric-value">{{ number_format($averageCasesPerRecordedDay, 1) }}</span></div></div>
 </div>
 <div class="row g-3">
@@ -24,7 +24,7 @@
 <script>
 const chartOptions = (unit) => ({maintainAspectRatio:false,elements:{point:{radius:0,hitRadius:5}},scales:{x:{ticks:{maxTicksLimit:10}},y:{beginAtZero:true,title:{display:true,text:unit}}}});
 if(document.getElementById('demand-chart')) new Chart(document.getElementById('demand-chart'),{type:'line',data:{labels:@json($dailyDemand->pluck('day')->map(fn ($day) => \Carbon\Carbon::parse($day)->format('d M Y'))),datasets:[{label:'Cases ordered',data:@json($dailyDemand->pluck('cases')),borderColor:'#b42332',tension:.25}]},options:chartOptions('Cases')});
-if(document.getElementById('revenue-chart')) new Chart(document.getElementById('revenue-chart'),{type:'line',data:{labels:@json($dailyRevenue->pluck('day')->map(fn ($day) => \Carbon\Carbon::parse($day)->format('d M Y'))),datasets:[{label:'Invoiced sales (KSh)',data:@json($dailyRevenue->pluck('revenue')),borderColor:'#20a18a',tension:.25}]},options:chartOptions('KSh')});
+if(document.getElementById('revenue-chart')) new Chart(document.getElementById('revenue-chart'),{type:'line',data:{labels:@json($dailyRevenue->pluck('day')->map(fn ($day) => \Carbon\Carbon::parse($day)->format('d M Y'))),datasets:[{label:'Total invoiced (KSh)',data:@json($dailyRevenue->pluck('revenue')),borderColor:'#20a18a',tension:.25}]},options:chartOptions('KSh')});
 if(document.getElementById('dispatch-chart')) new Chart(document.getElementById('dispatch-chart'),{type:'bar',data:{labels:@json($dailyDispatches->pluck('day')->map(fn ($day) => \Carbon\Carbon::parse($day)->format('d M Y'))),datasets:[{label:'Cases dispatched',data:@json($dailyDispatches->pluck('cases')),backgroundColor:'#e8a32b'}]},options:chartOptions('Cases')});
 </script>
 @endsection

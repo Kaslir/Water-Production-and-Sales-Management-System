@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Models\Customer;
+use App\Models\DeliveryArea;
+use App\Models\DeliveryTrip;
 use App\Models\Dispatch;
 use App\Models\Invoice;
 use App\Models\ProductionBatch;
@@ -10,6 +12,7 @@ use App\Models\StockMovement;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
 class OperationsController extends Controller
@@ -20,7 +23,7 @@ class OperationsController extends Controller
         if ($type === 'customers') {
             $filters = $request->validate(['q' => ['nullable', 'string', 'max:255']]);
             $search = trim($filters['q'] ?? '');
-            $rows = Customer::query()
+            $rows = Customer::query()->with('deliveryArea.zone')
                 ->when($search !== '', function ($query) use ($search) {
                     $query->where(function ($query) use ($search) {
                         $query->where('name', 'like', '%'.$search.'%')
@@ -64,10 +67,16 @@ class OperationsController extends Controller
             ->join('invoices', 'customer_refunds.invoice_id', '=', 'invoices.id')
             ->join('sales_orders', 'invoices.sales_order_id', '=', 'sales_orders.id')
             ->where('sales_orders.customer_id', $customer->customer_id)->sum('customer_refunds.amount');
-        $netInvoiced = $invoiced - $credits;
-        $invoiceBalances = Invoice::query()->whereHas('order', fn ($query) => $query->where('customer_id', $customer->customer_id))->with(['returns', 'activePayments', 'refunds'])->get();
-        $balanceDue = (float) $invoiceBalances->sum(fn (Invoice $invoice) => max(0, (float) $invoice->amount - (float) $invoice->returns->sum('credit_amount') - (float) $invoice->activePayments->sum('amount') + (float) $invoice->refunds->sum('amount')));
-        $customerCreditDue = (float) $invoiceBalances->sum(fn (Invoice $invoice) => max(0, (float) $invoice->activePayments->sum('amount') - ((float) $invoice->amount - (float) $invoice->returns->sum('credit_amount')) - (float) $invoice->refunds->sum('amount')));
+        $deliveryFeeCredits = (float) DB::table('delivery_fee_credits')
+            ->join('invoices', 'delivery_fee_credits.invoice_id', '=', 'invoices.id')
+            ->join('sales_orders', 'invoices.sales_order_id', '=', 'sales_orders.id')
+            ->where('sales_orders.customer_id', $customer->customer_id)->sum('delivery_fee_credits.amount');
+        $netInvoiced = $invoiced - $credits - $deliveryFeeCredits;
+        $invoiceBalances = Invoice::query()->whereHas('order', fn ($query) => $query->where('customer_id', $customer->customer_id))->with(['returns', 'activePayments', 'refunds', 'deliveryFeeCredit'])->get();
+        $balanceDue = (float) $invoiceBalances->sum(fn (Invoice $invoice) => max(0, (float) $invoice->amount - (float) $invoice->returns->sum('credit_amount') - (float) ($invoice->deliveryFeeCredit?->amount ?? 0) - (float) $invoice->activePayments->sum('amount') + (float) $invoice->refunds->sum('amount')));
+        $customerCreditDue = (float) $invoiceBalances->sum(fn (Invoice $invoice) => max(0, (float) $invoice->activePayments->sum('amount') - ((float) $invoice->amount - (float) $invoice->returns->sum('credit_amount') - (float) ($invoice->deliveryFeeCredit?->amount ?? 0)) - (float) $invoice->refunds->sum('amount')));
+
+        $customer->load('deliveryArea.zone');
 
         return view('operations.customer-show', compact('customer', 'orders', 'orderCount', 'netInvoiced', 'cashCollected', 'refundsPaid', 'balanceDue', 'customerCreditDue'));
     }
@@ -78,7 +87,7 @@ class OperationsController extends Controller
         abort_unless($type === 'customers', 404);
         abort_unless($request->user()->hasRole('administrator', 'manager', 'sales_staff'), 403);
 
-        return view('operations.form', ['type' => $type, 'customers' => Customer::orderBy('name')->get()]);
+        return view('operations.form', ['type' => $type, 'areas' => DeliveryArea::query()->with('zone')->whereHas('zone', fn ($query) => $query->where('is_active', true))->where('county', 'Nairobi')->orderBy('name')->get()]);
     }
 
     public function store(Request $request, string $type): RedirectResponse
@@ -92,10 +101,39 @@ class OperationsController extends Controller
             'email' => 'nullable|email|max:255',
             'address' => 'nullable|string|max:255',
             'contact_person' => 'nullable|string|max:255',
+            'delivery_area_id' => 'required|integer|exists:delivery_areas,id',
         ]);
+        $this->requireActiveNairobiArea((int) $data['delivery_area_id']);
+        $data['delivery_county'] = 'Nairobi';
         Customer::create($data);
 
         return redirect()->route('customers.index')->with('status', 'Customer record saved.');
+    }
+
+    public function editCustomer(Request $request, Customer $customer): View
+    {
+        $this->authorizeType($request, 'customers');
+        abort_unless($request->user()->hasRole('administrator', 'manager', 'sales_staff'), 403);
+
+        return view('operations.customer-delivery-edit', ['customer' => $customer, 'areas' => DeliveryArea::query()->with('zone')->whereHas('zone', fn ($query) => $query->where('is_active', true))->where('county', 'Nairobi')->orderBy('name')->get()]);
+    }
+
+    public function updateCustomerDelivery(Request $request, Customer $customer): RedirectResponse
+    {
+        $this->authorizeType($request, 'customers');
+        abort_unless($request->user()->hasRole('administrator', 'manager', 'sales_staff'), 403);
+        $data = $request->validate(['delivery_area_id' => ['required', 'integer', 'exists:delivery_areas,id'], 'address' => ['required', 'string', 'max:255']]);
+        $this->requireActiveNairobiArea((int) $data['delivery_area_id']);
+        $customer->update($data + ['delivery_county' => 'Nairobi']);
+
+        return redirect()->route('customers.show', $customer)->with('status', 'Customer delivery location updated. Existing orders retain their saved location and fee.');
+    }
+
+    private function requireActiveNairobiArea(int $areaId): void
+    {
+        if (! DeliveryArea::query()->whereKey($areaId)->where('county', 'Nairobi')->whereHas('zone', fn ($query) => $query->where('is_active', true)->where('county', 'Nairobi'))->exists()) {
+            throw ValidationException::withMessages(['delivery_area_id' => 'Choose an active Nairobi delivery area.']);
+        }
     }
 
     private function inventoryIndex(Request $request): View
@@ -197,7 +235,7 @@ class OperationsController extends Controller
         }
         $rows = match ($type) {
             'production' => (clone $productionQuery)->with('product')->orderByDesc('produced_on')->orderByDesc('id')->paginate(20)->withQueryString(),
-            'distribution' => (clone $dispatchQuery)->with(['order.customer', 'lines'])->orderByDesc('dispatched_on')->orderByDesc('id')->paginate(20)->withQueryString(),
+            'distribution' => (clone $dispatchQuery)->with(['order.customer', 'order.deliveryTrips', 'lines'])->orderByDesc('dispatched_on')->orderByDesc('id')->paginate(20)->withQueryString(),
             'sales' => (clone $invoiceQuery)->with(['order.customer', 'order.items', 'activePayments'])->orderByDesc('issued_on')->orderByDesc('id')->paginate(20)->withQueryString(),
             default => abort(404),
         };
@@ -208,7 +246,9 @@ class OperationsController extends Controller
             'sales' => ['label' => 'Invoiced sales', 'value' => (clone $invoiceQuery)->sum('amount'), 'suffix' => 'KSh'],
         };
 
-        return view('operations.packaged-index', compact('type', 'rows', 'summary', 'filters'));
+        $trips = $type === 'distribution' ? DeliveryTrip::query()->withCount('orders')->orderByDesc('delivery_on')->orderByDesc('id')->limit(20)->get() : collect();
+
+        return view('operations.packaged-index', compact('type', 'rows', 'summary', 'filters', 'trips'));
     }
 
     private function authorizeType(Request $request, string $type): void

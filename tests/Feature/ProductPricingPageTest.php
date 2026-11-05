@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Customer;
+use App\Models\DeliveryArea;
 use App\Models\Product;
 use App\Models\ProductManufacturingPolicy;
 use App\Models\SalesOrder;
@@ -31,6 +32,7 @@ class ProductPricingPageTest extends TestCase
         $this->actingAs($manager)->post(route('packaged.orders.store'), [
             'customer_id' => $customer->customer_id,
             'delivery_address' => 'Nairobi',
+            'delivery_area_id' => DeliveryArea::where('name', 'Industrial Area')->value('id'),
             'requested_delivery_on' => today()->toDateString(),
             'delivery_cost' => 0,
             'items' => [['product_id' => $product->id, 'cases_ordered' => 2, 'price_per_case' => 620]],

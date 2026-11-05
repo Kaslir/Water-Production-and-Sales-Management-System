@@ -127,7 +127,7 @@ class ReplacePackagedDataset extends Command
             'sales' => $this->syntheticActor('sales_staff'),
             'distribution' => $this->syntheticActor('distribution_staff'),
         ];
-        foreach (['daily_order_closures', 'batch_actual_costs', 'stock_counts', 'customer_refunds', 'production_forecast_decisions', 'product_forecasts', 'sales_returns', 'payments', 'invoices', 'dispatch_lines', 'dispatches', 'batch_reservations', 'sales_order_items', 'sales_orders', 'batch_disposals', 'stock_movements', 'production_batches', 'operating_expenses', 'reports', 'forecasts', 'inventory_transactions', 'sales', 'distributions', 'productions', 'inventories', 'customers'] as $table) {
+        foreach (['daily_order_closures', 'batch_actual_costs', 'stock_counts', 'customer_refunds', 'delivery_fee_credits', 'delivery_trip_orders', 'delivery_trips', 'production_forecast_decisions', 'product_forecasts', 'sales_returns', 'payments', 'invoices', 'dispatch_lines', 'dispatches', 'batch_reservations', 'sales_order_items', 'sales_orders', 'batch_disposals', 'stock_movements', 'production_batches', 'operating_expenses', 'reports', 'forecasts', 'inventory_transactions', 'sales', 'distributions', 'productions', 'inventories', 'customers'] as $table) {
             DB::table($table)->delete();
         }
         $now = now();

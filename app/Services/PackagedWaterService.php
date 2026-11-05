@@ -5,6 +5,9 @@ namespace App\Services;
 use App\Models\BatchDisposal;
 use App\Models\BatchReservation;
 use App\Models\CustomerRefund;
+use App\Models\DeliveryArea;
+use App\Models\DeliveryFeeCredit;
+use App\Models\DeliveryZone;
 use App\Models\Dispatch;
 use App\Models\DispatchLine;
 use App\Models\Invoice;
@@ -194,6 +197,12 @@ class PackagedWaterService
             }
             $discount = (float) ($data['discount'] ?? 0);
             $this->require($discount <= $subtotal, 'Discount cannot exceed the order subtotal.');
+            $area = isset($data['delivery_area_id']) ? DeliveryArea::query()->findOrFail($data['delivery_area_id']) : null;
+            $zone = $area ? DeliveryZone::query()->lockForUpdate()->findOrFail($area->delivery_zone_id) : null;
+            if ($area) {
+                $this->require($area->county === 'Nairobi' && $zone->county === 'Nairobi' && $zone->is_active, 'Choose an active Nairobi delivery area.');
+            }
+            $deliveryFee = $zone ? (float) $zone->fixed_fee : 0.0;
             $order = SalesOrder::create([
                 'order_number' => 'ORD-'.Str::upper(Str::random(12)),
                 'customer_id' => $data['customer_id'],
@@ -201,9 +210,13 @@ class PackagedWaterService
                 'requested_delivery_on' => $data['requested_delivery_on'] ?? today(),
                 'status' => 'draft',
                 'delivery_address' => $data['delivery_address'],
+                'delivery_county' => $area ? 'Nairobi' : null,
+                'delivery_area_id' => $area?->id,
+                'delivery_zone_id' => $area?->delivery_zone_id,
+                'delivery_fee' => $deliveryFee,
                 'discount' => $discount,
-                'delivery_cost' => $data['delivery_cost'] ?? 0,
-                'total_amount' => round($subtotal - $discount, 2),
+                'delivery_cost' => $area ? 0 : ($data['delivery_cost'] ?? 0),
+                'total_amount' => round($subtotal - $discount + $deliveryFee, 2),
                 'price_override_reason' => $data['price_override_reason'] ?? null,
                 'data_origin' => 'genuine',
                 'notes' => $data['notes'] ?? null,
@@ -212,7 +225,7 @@ class PackagedWaterService
             foreach ($data['items'] as $item) {
                 $order->items()->create(['product_id' => $item['product_id'], 'cases_ordered' => $item['cases_ordered'], 'price_per_case' => $item['price_per_case'], 'line_total' => round($item['cases_ordered'] * $item['price_per_case'], 2)]);
             }
-            $this->auditTrail->record('order.created', $order, $actorId, [], ['amount' => $order->total_amount, 'discount' => $discount], $order->price_override_reason);
+            $this->auditTrail->record('order.created', $order, $actorId, [], ['amount' => $order->total_amount, 'discount' => $discount, 'delivery_fee' => $deliveryFee, 'delivery_area_id' => $area?->id], $order->price_override_reason);
 
             return $order;
         });
@@ -260,6 +273,7 @@ class PackagedWaterService
                     $reservation->delete();
                 }
             }
+            $order->deliveryTrips()->detach();
             $previous = $order->status;
             $order->update(['status' => 'cancelled']);
             $this->auditTrail->record('order.cancelled', $order, $actorId, ['status' => $previous], ['status' => 'cancelled'], $reason);
@@ -271,12 +285,14 @@ class PackagedWaterService
         return DB::transaction(function () use ($order, $actorId, $reference): Dispatch {
             $order = SalesOrder::query()->with('items.reservations')->lockForUpdate()->findOrFail($order->id);
             $this->require($order->status === 'confirmed', 'Only confirmed orders can be dispatched.');
+            $trip = $order->deliveryTrips()->first();
+            $this->require($order->delivery_area_id === null || $trip !== null, 'Assign this order to a truck trip before dispatch.');
             $dispatch = Dispatch::create(['sales_order_id' => $order->id, 'dispatched_on' => today(), 'status' => 'dispatched', 'delivery_reference' => $reference, 'dispatched_by' => $actorId]);
             foreach ($order->items as $item) {
                 $this->require($item->reservations->sum('cases_reserved') === $item->cases_ordered, 'Order reservation is incomplete.');
                 foreach ($item->reservations as $reservation) {
                     $batch = ProductionBatch::query()->lockForUpdate()->findOrFail($reservation->production_batch_id);
-                    $usableThrough = $order->requested_delivery_on && $order->requested_delivery_on->gt(today()) ? $order->requested_delivery_on : today();
+                    $usableThrough = collect([$order->requested_delivery_on, $trip?->delivery_on, today()])->filter()->max();
                     $this->require($batch->status === 'released' && $batch->expires_on->gt($usableThrough) && $batch->cases_on_hand >= $reservation->cases_reserved, 'A reserved batch is no longer eligible for dispatch.');
                     DispatchLine::create(['dispatch_id' => $dispatch->id, 'sales_order_item_id' => $item->id, 'production_batch_id' => $batch->id, 'cases' => $reservation->cases_reserved, 'cost_per_case' => $batch->cost_per_case]);
                     $batch->decrement('cases_on_hand', $reservation->cases_reserved);
@@ -324,8 +340,8 @@ class PackagedWaterService
     public function recordPayment(Invoice $invoice, array $data, int $actorId): Payment
     {
         return DB::transaction(function () use ($invoice, $data, $actorId): Payment {
-            $invoice = Invoice::query()->with(['activePayments', 'returns'])->lockForUpdate()->findOrFail($invoice->id);
-            $remaining = round((float) $invoice->amount - (float) $invoice->returns->sum('credit_amount') - (float) $invoice->activePayments->sum('amount'), 2);
+            $invoice = Invoice::query()->with(['activePayments', 'returns', 'deliveryFeeCredit'])->lockForUpdate()->findOrFail($invoice->id);
+            $remaining = round((float) $invoice->amount - (float) $invoice->returns->sum('credit_amount') - (float) ($invoice->deliveryFeeCredit?->amount ?? 0) - (float) $invoice->activePayments->sum('amount'), 2);
             $this->require($data['amount'] > 0 && $data['amount'] <= $remaining, 'Payment exceeds the outstanding invoice balance.');
             $payment = Payment::create(['invoice_id' => $invoice->id, 'amount' => $data['amount'], 'paid_on' => today(), 'method' => $data['method'], 'reference' => $data['reference'] ?? null, 'recorded_by' => $actorId]);
             $paid = round($remaining - $data['amount'], 2) <= 0;
@@ -342,7 +358,7 @@ class PackagedWaterService
     public function recordReturn(Invoice $invoice, DispatchLine $line, int $cases, string $reason, int $actorId): SalesReturn
     {
         return DB::transaction(function () use ($invoice, $line, $cases, $reason, $actorId): SalesReturn {
-            $invoice = Invoice::query()->with(['order.items', 'activePayments', 'returns'])->lockForUpdate()->findOrFail($invoice->id);
+            $invoice = Invoice::query()->with(['order.items', 'activePayments', 'returns', 'deliveryFeeCredit'])->lockForUpdate()->findOrFail($invoice->id);
             $line = DispatchLine::query()->lockForUpdate()->findOrFail($line->id);
             $this->require(Dispatch::query()->whereKey($line->dispatch_id)->where('sales_order_id', $invoice->sales_order_id)->exists(), 'This batch dispatch does not belong to the invoice.');
             $alreadyReturned = (int) SalesReturn::query()->where('dispatch_line_id', $line->id)->sum('cases');
@@ -351,9 +367,9 @@ class PackagedWaterService
             $subtotal = (float) $invoice->order->items->sum('line_total');
             $discountRate = $subtotal > 0 ? (float) $invoice->order->discount / $subtotal : 0;
             $creditAmount = round($cases * (float) $item->price_per_case * (1 - $discountRate), 2);
-            $this->require((float) $invoice->returns->sum('credit_amount') + $creditAmount <= (float) $invoice->amount + 0.01, 'Credits exceed the invoice amount.');
+            $this->require((float) $invoice->returns->sum('credit_amount') + $creditAmount <= (float) $invoice->amount - (float) $invoice->order->delivery_fee + 0.01, 'Product credits exceed the bottled-water amount.');
             $return = SalesReturn::create(['invoice_id' => $invoice->id, 'dispatch_line_id' => $line->id, 'cases' => $cases, 'credit_amount' => $creditAmount, 'returned_on' => today(), 'disposition' => 'destroyed_on_receipt', 'reason' => $reason, 'recorded_by' => $actorId]);
-            $netDue = round((float) $invoice->amount - (float) $invoice->returns->sum('credit_amount') - $creditAmount - (float) $invoice->activePayments->sum('amount'), 2);
+            $netDue = round((float) $invoice->amount - (float) $invoice->returns->sum('credit_amount') - $creditAmount - (float) ($invoice->deliveryFeeCredit?->amount ?? 0) - (float) $invoice->activePayments->sum('amount'), 2);
             $invoice->update(['status' => $netDue < 0 ? 'credit_due' : ($netDue == 0.0 ? 'settled' : ((float) $invoice->activePayments->sum('amount') > 0 ? 'part_paid' : 'credited'))]);
             $this->auditTrail->record('invoice.return_credited', $return, $actorId, [], ['cases' => $cases, 'credit_amount' => $creditAmount, 'disposition' => 'destroyed_on_receipt'], $reason);
 
@@ -364,8 +380,8 @@ class PackagedWaterService
     public function recordRefund(Invoice $invoice, array $data, int $actorId): CustomerRefund
     {
         return DB::transaction(function () use ($invoice, $data, $actorId): CustomerRefund {
-            $invoice = Invoice::query()->with(['activePayments', 'returns', 'refunds'])->lockForUpdate()->findOrFail($invoice->id);
-            $creditDue = round((float) $invoice->activePayments->sum('amount') - ((float) $invoice->amount - (float) $invoice->returns->sum('credit_amount')) - (float) $invoice->refunds->sum('amount'), 2);
+            $invoice = Invoice::query()->with(['activePayments', 'returns', 'refunds', 'deliveryFeeCredit'])->lockForUpdate()->findOrFail($invoice->id);
+            $creditDue = round((float) $invoice->activePayments->sum('amount') - ((float) $invoice->amount - (float) $invoice->returns->sum('credit_amount') - (float) ($invoice->deliveryFeeCredit?->amount ?? 0)) - (float) $invoice->refunds->sum('amount'), 2);
             $this->require($data['amount'] > 0 && $data['amount'] <= $creditDue, 'Refund exceeds the customer credit due.');
             $refund = CustomerRefund::create($data + ['invoice_id' => $invoice->id, 'refunded_on' => today(), 'recorded_by' => $actorId]);
             if (round($creditDue - $data['amount'], 2) <= 0) {
@@ -377,15 +393,30 @@ class PackagedWaterService
         });
     }
 
+    public function approveDeliveryFeeCredit(Invoice $invoice, string $reason, int $actorId): DeliveryFeeCredit
+    {
+        return DB::transaction(function () use ($invoice, $reason, $actorId): DeliveryFeeCredit {
+            $invoice = Invoice::query()->with(['order', 'activePayments', 'returns'])->lockForUpdate()->findOrFail($invoice->id);
+            $fee = (float) $invoice->order->delivery_fee;
+            $this->require($fee > 0 && ! DeliveryFeeCredit::query()->where('invoice_id', $invoice->id)->exists(), 'This invoice has no refundable delivery fee or it has already been credited.');
+            $credit = DeliveryFeeCredit::create(['invoice_id' => $invoice->id, 'amount' => $fee, 'reason' => $reason, 'approved_by' => $actorId]);
+            $remaining = round((float) $invoice->amount - (float) $invoice->returns->sum('credit_amount') - $fee - (float) $invoice->activePayments->sum('amount'), 2);
+            $invoice->update(['status' => $remaining < 0 ? 'credit_due' : ($remaining == 0.0 ? 'settled' : ((float) $invoice->activePayments->sum('amount') > 0 ? 'part_paid' : 'credited'))]);
+            $this->auditTrail->record('invoice.delivery_fee_credited', $credit, $actorId, [], ['amount' => $fee, 'invoice_id' => $invoice->id], $reason);
+
+            return $credit;
+        });
+    }
+
     public function reversePayment(Payment $payment, string $reason, int $actorId): void
     {
         DB::transaction(function () use ($payment, $reason, $actorId): void {
-            $invoice = Invoice::query()->with(['activePayments', 'returns', 'refunds'])->lockForUpdate()->findOrFail($payment->invoice_id);
+            $invoice = Invoice::query()->with(['activePayments', 'returns', 'refunds', 'deliveryFeeCredit'])->lockForUpdate()->findOrFail($payment->invoice_id);
             $payment = Payment::query()->lockForUpdate()->findOrFail($payment->id);
             $this->require($payment->invoice_id === $invoice->id && $payment->reversed_at === null, 'Payment has already been reversed or is no longer linked to this invoice.');
             $this->require($invoice->refunds->isEmpty(), 'A customer refund has been recorded. Reconcile that refund before reversing a payment.');
             $payment->update(['reversed_at' => now(), 'reversed_by' => $actorId, 'reversal_reason' => $reason]);
-            $remaining = round((float) $invoice->amount - (float) $invoice->returns->sum('credit_amount') - (float) $invoice->activePayments->where('id', '!=', $payment->id)->sum('amount'), 2);
+            $remaining = round((float) $invoice->amount - (float) $invoice->returns->sum('credit_amount') - (float) ($invoice->deliveryFeeCredit?->amount ?? 0) - (float) $invoice->activePayments->where('id', '!=', $payment->id)->sum('amount'), 2);
             $invoice->update(['status' => $remaining < 0 ? 'credit_due' : ($remaining == 0.0 ? 'settled' : ((float) $invoice->activePayments->where('id', '!=', $payment->id)->sum('amount') > 0 ? 'part_paid' : 'unpaid'))]);
             if ($remaining > 0) {
                 $invoice->order()->update(['status' => 'invoiced']);

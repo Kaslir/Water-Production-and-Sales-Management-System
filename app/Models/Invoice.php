@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Invoice extends Model
 {
@@ -32,6 +33,11 @@ class Invoice extends Model
     public function refunds(): HasMany
     {
         return $this->hasMany(CustomerRefund::class);
+    }
+
+    public function deliveryFeeCredit(): HasOne
+    {
+        return $this->hasOne(DeliveryFeeCredit::class);
     }
 
     use HasFactory;

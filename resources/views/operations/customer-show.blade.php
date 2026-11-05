@@ -3,7 +3,7 @@
 @section('content')
 <div class="toolbar mb-3 justify-content-between">
     <a href="{{ route('customers.index') }}">&larr; Back to customers</a>
-    <a class="btn btn-brand btn-sm" href="{{ route('packaged.orders.create') }}">Create order</a>
+    <div class="d-flex gap-2"><a class="btn btn-outline-primary btn-sm" href="{{ route('customers.delivery.edit', $customer) }}">Edit delivery location</a><a class="btn btn-brand btn-sm" href="{{ route('packaged.orders.create', ['customer_id' => $customer->customer_id]) }}">Create order</a></div>
 </div>
 <div class="panel mb-3">
     <h5>{{ $customer->name }}</h5>
@@ -12,7 +12,8 @@
         <div class="col-md-3"><strong>Phone number</strong><br>{{ $customer->phone_number }}</div>
         <div class="col-md-3"><strong>Email</strong><br>{{ $customer->email ?: 'Not provided' }}</div>
         <div class="col-md-3"><strong>Contact person</strong><br>{{ $customer->contact_person ?: 'Not provided' }}</div>
-        <div class="col-12"><strong>Address</strong><br>{{ $customer->address ?: 'Not provided' }}</div>
+        <div class="col-md-4"><strong>County and delivery area</strong><br>{{ $customer->deliveryArea ? 'Nairobi · '.$customer->deliveryArea->name.' (Zone '.$customer->deliveryArea->zone->code.')' : 'Not set for this existing customer' }}</div>
+        <div class="col-md-8"><strong>Address or landmark</strong><br>{{ $customer->address ?: 'Not provided' }}</div>
     </div>
 </div>
 <div class="row g-3 mb-3">

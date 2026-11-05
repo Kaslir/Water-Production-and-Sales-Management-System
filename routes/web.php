@@ -6,6 +6,8 @@ use App\Http\Controllers\AnalyticsController;
 use App\Http\Controllers\AuditLogController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\DeliveryTripController;
+use App\Http\Controllers\DeliveryZoneController;
 use App\Http\Controllers\LogController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\OperationsController;
@@ -73,6 +75,8 @@ Route::middleware(['auth', 'active', DailyAlertScan::class])->group(function () 
         Route::get('/packaged/manufacturing-settings', [PackagedProductionController::class, 'manufacturingSettings'])->name('packaged.manufacturing-settings.index');
         Route::post('/packaged/products/{product}/manufacturing-settings', [PackagedProductionController::class, 'saveManufacturingSettings'])->name('packaged.manufacturing-settings.store');
         Route::get('/packaged/pricing', [ProductPricingController::class, 'index'])->name('packaged.pricing.index');
+        Route::get('/packaged/delivery-zones', [DeliveryZoneController::class, 'index'])->name('packaged.delivery-zones.index');
+        Route::post('/packaged/delivery-zones/{zone}', [DeliveryZoneController::class, 'update'])->name('packaged.delivery-zones.update');
         Route::post('/packaged/batches/{batch}/release', [PackagedProductionController::class, 'release'])->name('packaged.batches.release');
         Route::post('/packaged/batches/{batch}/quarantine', [PackagedProductionController::class, 'quarantine'])->name('packaged.batches.quarantine');
         Route::post('/packaged/batches/{batch}/dispose', [PackagedProductionController::class, 'dispose'])->name('packaged.batches.dispose');
@@ -96,6 +100,10 @@ Route::middleware(['auth', 'active', DailyAlertScan::class])->group(function () 
         Route::post('/packaged/invoices/{invoice}/returns', [SalesOrderController::class, 'recordReturn'])->name('packaged.invoices.return');
     });
     Route::middleware('role:administrator,manager,distribution_staff')->group(function () {
+        Route::get('/packaged/trips/create', [DeliveryTripController::class, 'create'])->name('packaged.trips.create');
+        Route::post('/packaged/trips', [DeliveryTripController::class, 'store'])->name('packaged.trips.store');
+        Route::get('/packaged/trips/{trip}', [DeliveryTripController::class, 'show'])->name('packaged.trips.show');
+        Route::post('/packaged/trips/{trip}/expenses', [DeliveryTripController::class, 'expense'])->name('packaged.trips.expense');
         Route::post('/packaged/orders/{order}/dispatch', [SalesOrderController::class, 'dispatch'])->name('packaged.orders.dispatch');
         Route::post('/packaged/orders/{order}/deliver', [SalesOrderController::class, 'deliver'])->name('packaged.orders.deliver');
     });
@@ -105,6 +113,7 @@ Route::middleware(['auth', 'active', DailyAlertScan::class])->group(function () 
     });
     Route::middleware('role:administrator,manager')->group(function () {
         Route::post('/packaged/invoices/{invoice}/refunds', [SalesOrderController::class, 'refund'])->name('packaged.invoices.refund');
+        Route::post('/packaged/invoices/{invoice}/delivery-fee-credit', [SalesOrderController::class, 'creditDeliveryFee'])->name('packaged.invoices.delivery-fee-credit');
         Route::post('/packaged/payments/{payment}/reverse', [SalesOrderController::class, 'reversePayment'])->name('packaged.payments.reverse');
         Route::post('/packaged/forecasts/run', [ProductForecastController::class, 'run'])->name('packaged.forecasts.run');
         Route::post('/packaged/forecasts/{forecast}/decision', [ProductForecastController::class, 'decision'])->name('packaged.forecasts.decision');
@@ -137,6 +146,10 @@ Route::middleware(['auth', 'active', DailyAlertScan::class])->group(function () 
     Route::get('/customers', [OperationsController::class, 'index'])->defaults('type', 'customers')->name('customers.index');
     Route::get('/customers/{customer}', [OperationsController::class, 'customerShow'])
         ->whereNumber('customer')->middleware('role:administrator,manager,sales_staff')->name('customers.show');
+    Route::get('/customers/{customer}/delivery/edit', [OperationsController::class, 'editCustomer'])
+        ->whereNumber('customer')->middleware('role:administrator,manager,sales_staff')->name('customers.delivery.edit');
+    Route::post('/customers/{customer}/delivery', [OperationsController::class, 'updateCustomerDelivery'])
+        ->whereNumber('customer')->middleware('role:administrator,manager,sales_staff')->name('customers.delivery.update');
 
     Route::get('/{type}/create', [OperationsController::class, 'create'])
         ->whereIn('type', ['customers'])->name('operations.create');
