@@ -13,10 +13,14 @@ use Illuminate\View\View;
 
 class DeliveryTripController extends Controller
 {
-    public function create(): View
+    public function create(Request $request): View
     {
+        $filters = $request->validate(['order_id' => ['nullable', 'integer', 'exists:sales_orders,id']]);
+        $orders = SalesOrder::query()->with(['customer', 'deliveryArea'])->where('status', 'confirmed')->whereNotNull('delivery_area_id')->whereDoesntHave('dispatch')->whereDoesntHave('deliveryTrips')->orderBy('requested_delivery_on')->get();
+
         return view('packaged.trip-create', [
-            'orders' => SalesOrder::query()->with(['customer', 'deliveryArea'])->where('status', 'confirmed')->whereNotNull('delivery_area_id')->whereDoesntHave('deliveryTrips')->orderBy('requested_delivery_on')->get(),
+            'orders' => $orders,
+            'selectedOrderId' => $orders->contains('id', (int) ($filters['order_id'] ?? 0)) ? (int) $filters['order_id'] : null,
         ]);
     }
 

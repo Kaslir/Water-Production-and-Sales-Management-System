@@ -50,7 +50,7 @@ class DistributionOrderFilterTest extends TestCase
         ]);
     }
 
-    public function test_order_number_and_dispatch_dates_filter_rows_and_case_total(): void
+    public function test_order_number_and_dispatch_dates_filter_history_without_changing_all_time_total(): void
     {
         $user = User::create(['name' => 'Distribution Staff', 'email' => 'distribution@example.test', 'password' => 'password-long-enough', 'role' => 'distribution_staff', 'is_active' => true]);
         $customer = Customer::create(['name' => 'Hotel', 'phone_number' => '0712345678']);
@@ -72,12 +72,14 @@ class DistributionOrderFilterTest extends TestCase
         $this->dispatch('ORD-NEW-002', 1, 30, $user, $customer, $product, $batch);
 
         $this->actingAs($user)->get(route('distribution.index', [
+            'tab' => 'history',
             'order' => 'NEW',
             'from' => today()->subDays(6)->toDateString(),
             'to' => today()->subDays(2)->toDateString(),
-        ]))->assertOk()->assertSee('ORD-NEW-001')->assertDontSee('ORD-NEW-002')->assertDontSee('ORD-OLD-001')->assertSee('20 cases')->assertSee('1 records');
+        ]))->assertOk()->assertSee('ORD-NEW-001')->assertDontSee('ORD-NEW-002')->assertDontSee('ORD-OLD-001')->assertSee('20 cases')->assertSee('1 records')->assertSee('60 cases')->assertSee('Not recorded (historical)');
 
         $this->actingAs($user)->get(route('distribution.index', [
+            'tab' => 'history',
             'to' => today()->subDays(20)->toDateString(),
         ]))->assertOk()->assertSee('ORD-OLD-001')->assertDontSee('ORD-NEW-001')->assertSee('10 cases');
     }
@@ -87,8 +89,33 @@ class DistributionOrderFilterTest extends TestCase
         $user = User::create(['name' => 'Distribution Staff', 'email' => 'distribution@example.test', 'password' => 'password-long-enough', 'role' => 'distribution_staff', 'is_active' => true]);
 
         $this->actingAs($user)->get(route('distribution.index', [
+            'tab' => 'history',
             'from' => today()->toDateString(),
             'to' => today()->subDay()->toDateString(),
         ]))->assertSessionHasErrors('to');
+    }
+
+    public function test_history_is_paginated_and_distribution_access_is_role_restricted(): void
+    {
+        $distribution = User::create(['name' => 'Distribution Staff', 'email' => 'distribution@example.test', 'password' => 'password-long-enough', 'role' => 'distribution_staff', 'is_active' => true]);
+        $sales = User::create(['name' => 'Sales Staff', 'email' => 'sales@example.test', 'password' => 'password-long-enough', 'role' => 'sales_staff', 'is_active' => true]);
+        $customer = Customer::create(['name' => 'Hotel', 'phone_number' => '0712345678']);
+        $product = Product::where('sku', 'WATER-500ML')->firstOrFail();
+        $batch = ProductionBatch::create([
+            'product_id' => $product->id, 'batch_code' => 'B-PAGE-001',
+            'produced_on' => today()->subMonth(), 'expires_on' => today()->addMonth(),
+            'cases_produced' => 21, 'cases_on_hand' => 0, 'status' => 'released',
+            'total_cost' => 0, 'cost_per_case' => 0, 'produced_by' => $distribution->user_id,
+        ]);
+        foreach (range(1, 21) as $number) {
+            $this->dispatch(sprintf('ORD-PAGE-%03d', $number), 1, 1, $distribution, $customer, $product, $batch);
+        }
+
+        $this->actingAs($distribution)->get(route('distribution.index', ['tab' => 'history', 'order' => 'ORD-PAGE']))
+            ->assertOk()->assertViewHas('rows', fn ($rows) => $rows->total() === 21 && $rows->count() === 20)
+            ->assertSee('order=ORD-PAGE');
+        $this->actingAs($distribution)->get(route('distribution.index', ['tab' => 'history', 'order' => 'ORD-PAGE', 'page' => 2]))
+            ->assertOk()->assertViewHas('rows', fn ($rows) => $rows->total() === 21 && $rows->count() === 1);
+        $this->actingAs($sales)->get(route('distribution.index'))->assertForbidden();
     }
 }

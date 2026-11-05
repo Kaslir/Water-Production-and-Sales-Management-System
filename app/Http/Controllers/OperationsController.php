@@ -5,10 +5,12 @@ namespace App\Http\Controllers;
 use App\Models\Customer;
 use App\Models\DeliveryArea;
 use App\Models\DeliveryTrip;
+use App\Models\DeliveryZone;
 use App\Models\Dispatch;
 use App\Models\Invoice;
 use App\Models\Product;
 use App\Models\ProductionBatch;
+use App\Models\SalesOrder;
 use App\Models\StockMovement;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
@@ -42,6 +44,10 @@ class OperationsController extends Controller
 
         if ($type === 'inventory') {
             return $this->inventoryIndex($request);
+        }
+
+        if ($type === 'distribution') {
+            return $this->distributionIndex($request);
         }
 
         return $this->packagedIndex($request, $type);
@@ -144,51 +150,105 @@ class OperationsController extends Controller
         $filters = $request->validate([
             'tab' => ['nullable', 'in:stock,batches,movements'],
             'batch' => ['nullable', 'string', 'max:80'],
+            'product_id' => ['nullable', 'integer', Rule::exists('products', 'id')],
+            'status' => ['nullable', 'string', 'max:80'],
+            'movement_type' => ['nullable', 'string', 'max:80'],
             'from' => ['nullable', 'date_format:Y-m-d'],
             'to' => ['nullable', 'date_format:Y-m-d', ...($request->filled('from') ? ['after_or_equal:from'] : [])],
         ]);
-        $tab = $filters['tab'] ?? 'stock';
+        $tab = ($filters['tab'] ?? null) === 'movements' ? 'movements' : 'batches';
         $batchCode = trim($filters['batch'] ?? '');
-        $rows = null;
+        $products = Product::query()->orderBy('volume_ml')->get();
+        $qualityStatuses = $tab === 'batches' ? ProductionBatch::query()->distinct()->orderBy('status')->pluck('status') : collect();
+        $movementTypes = $tab === 'movements' ? StockMovement::query()->distinct()->orderBy('reason')->pluck('reason') : collect();
+        $businessToday = CarbonImmutable::today(config('app.business_timezone'));
 
         if ($tab === 'batches') {
             $rows = ProductionBatch::query()->with('product')
                 ->when($batchCode !== '', fn ($query) => $query->where('batch_code', 'like', '%'.$batchCode.'%'))
+                ->when(! empty($filters['product_id']), fn ($query) => $query->where('product_id', $filters['product_id']))
+                ->when(! empty($filters['status']), fn ($query) => $query->where('status', $filters['status']))
                 ->when(! empty($filters['from']), fn ($query) => $query->whereDate('produced_on', '>=', $filters['from']))
                 ->when(! empty($filters['to']), fn ($query) => $query->whereDate('produced_on', '<=', $filters['to']))
                 ->orderByDesc('produced_on')->orderByDesc('id')->paginate(20)->withQueryString();
-        } elseif ($tab === 'movements') {
+        } else {
             $rows = StockMovement::query()->with('batch.product')
                 ->when($batchCode !== '', fn ($query) => $query->whereHas('batch', fn ($batchQuery) => $batchQuery->where('batch_code', 'like', '%'.$batchCode.'%')))
+                ->when(! empty($filters['product_id']), fn ($query) => $query->whereHas('batch', fn ($batchQuery) => $batchQuery->where('product_id', $filters['product_id'])))
+                ->when(! empty($filters['movement_type']), fn ($query) => $query->where('reason', $filters['movement_type']))
                 ->when(! empty($filters['from']), fn ($query) => $query->whereDate('created_at', '>=', $filters['from']))
                 ->when(! empty($filters['to']), fn ($query) => $query->whereDate('created_at', '<=', $filters['to']))
                 ->orderByDesc('id')->paginate(20)->withQueryString();
         }
 
-        $stockByProduct = DB::table('products')->leftJoin('production_batches', function ($join) {
-            $join->on('products.id', '=', 'production_batches.product_id')
-                ->where('production_batches.status', '=', 'released')
-                ->where('production_batches.expires_on', '>', today()->toDateString());
-        })->select('products.name')->selectRaw('COALESCE(SUM(production_batches.cases_on_hand - production_batches.cases_reserved), 0) as cases')
-            ->groupBy('products.id', 'products.name')->orderBy('products.volume_ml')->get();
-        $availableCases = $stockByProduct->sum('cases');
-        $nearExpiry = $tab === 'stock'
-            ? ProductionBatch::query()->with('product')->where('status', 'released')->where('cases_on_hand', '>', 0)
-                ->whereDate('expires_on', '>', today())->whereDate('expires_on', '<=', today()->addDays(30))
-                ->orderBy('expires_on')->get()
+        $availableCases = (int) ProductionBatch::query()->where('status', 'released')
+            ->whereDate('expires_on', '>', $businessToday->toDateString())
+            ->selectRaw('COALESCE(SUM(cases_on_hand - cases_reserved), 0) as total')->value('total');
+        $dispatchOrders = $tab === 'movements'
+            ? Dispatch::query()->with('order')->whereIn('id', $rows->getCollection()->whereIn('reference_type', ['Dispatch', 'dispatch'])->pluck('reference_id')->filter()->unique())->get()->keyBy('id')
             : collect();
 
-        return view('operations.inventory', compact('tab', 'filters', 'rows', 'stockByProduct', 'availableCases', 'nearExpiry'));
+        return view('operations.inventory', compact('tab', 'filters', 'rows', 'products', 'qualityStatuses', 'movementTypes', 'businessToday', 'availableCases', 'dispatchOrders'));
+    }
+
+    private function distributionIndex(Request $request): View
+    {
+        $filters = $request->validate([
+            'tab' => ['nullable', 'in:awaiting,trips,history'],
+            'order' => ['nullable', 'string', 'max:80'],
+            'customer' => ['nullable', 'string', 'max:255'],
+            'delivery_zone_id' => ['nullable', 'integer', Rule::exists('delivery_zones', 'id')],
+            'status' => ['nullable', 'in:dispatched,delivered'],
+            'from' => ['nullable', 'date_format:Y-m-d'],
+            'to' => ['nullable', 'date_format:Y-m-d', ...($request->filled('from') ? ['after_or_equal:from'] : [])],
+        ]);
+        $tab = $filters['tab'] ?? 'awaiting';
+        $businessToday = CarbonImmutable::today(config('app.business_timezone'))->toDateString();
+        $awaitingQuery = SalesOrder::query()->where('status', 'confirmed')
+            ->whereNotNull('delivery_area_id')->whereNotNull('delivery_address')
+            ->where('delivery_address', '<>', '')->whereHas('items')->whereDoesntHave('dispatch')
+            ->whereDoesntHave('items', fn ($query) => $query->whereRaw('(SELECT COALESCE(SUM(cases_reserved), 0) FROM batch_reservations WHERE sales_order_item_id = sales_order_items.id) <> sales_order_items.cases_ordered'))
+            ->whereDoesntHave('items.reservations', fn ($query) => $query->whereHas('batch', fn ($batch) => $batch
+                ->where('status', '<>', 'released')
+                ->orWhereDate('expires_on', '<=', $businessToday)
+                ->orWhereColumn('cases_on_hand', '<', 'batch_reservations.cases_reserved')));
+
+        $summary = [
+            'cases' => (int) DB::table('dispatch_lines')->sum('cases'),
+            'awaiting' => (clone $awaitingQuery)->count(),
+            'active_trips' => DeliveryTrip::query()->whereHas('orders', fn ($query) => $query->whereIn('status', ['confirmed', 'dispatched']))->count(),
+        ];
+        $zones = $tab === 'awaiting' ? DeliveryZone::query()->orderBy('code')->get() : collect();
+        $rows = match ($tab) {
+            'awaiting' => (clone $awaitingQuery)
+                ->with(['customer', 'deliveryArea', 'deliveryZone', 'items', 'deliveryTrips'])
+                ->when(filled($filters['order'] ?? null), fn ($query) => $query->where('order_number', 'like', '%'.trim($filters['order']).'%'))
+                ->when(filled($filters['customer'] ?? null), fn ($query) => $query->whereHas('customer', fn ($customer) => $customer->where('name', 'like', '%'.trim($filters['customer']).'%')))
+                ->when(! empty($filters['delivery_zone_id']), fn ($query) => $query->where('delivery_zone_id', $filters['delivery_zone_id']))
+                ->when(! empty($filters['from']), fn ($query) => $query->whereDate('ordered_on', '>=', $filters['from']))
+                ->when(! empty($filters['to']), fn ($query) => $query->whereDate('ordered_on', '<=', $filters['to']))
+                ->orderBy('requested_delivery_on')->orderBy('id')->paginate(20)->withQueryString(),
+            'trips' => DeliveryTrip::query()->with(['orders:id,status'])->withCount('orders')
+                ->orderByDesc('delivery_on')->orderByDesc('id')->paginate(20)->withQueryString(),
+            'history' => Dispatch::query()->with(['order.customer', 'order.deliveryArea', 'order.deliveryTrips', 'lines'])
+                ->when(filled($filters['order'] ?? null), fn ($query) => $query->whereHas('order', fn ($order) => $order->where('order_number', 'like', '%'.trim($filters['order']).'%')))
+                ->when(filled($filters['customer'] ?? null), fn ($query) => $query->whereHas('order.customer', fn ($customer) => $customer->where('name', 'like', '%'.trim($filters['customer']).'%')))
+                ->when(! empty($filters['status']), fn ($query) => $query->where('status', $filters['status']))
+                ->when(! empty($filters['from']), fn ($query) => $query->whereDate('dispatched_on', '>=', $filters['from']))
+                ->when(! empty($filters['to']), fn ($query) => $query->whereDate('dispatched_on', '<=', $filters['to']))
+                ->orderByDesc('dispatched_on')->orderByDesc('id')->paginate(20)->withQueryString(),
+        };
+
+        return view('operations.distribution', compact('filters', 'tab', 'rows', 'summary', 'zones'));
     }
 
     private function packagedIndex(Request $request, string $type): View
     {
         $searchKey = match ($type) {
-            'distribution' => 'order',
             'sales' => 'invoice',
             default => 'batch',
         };
-        $filters = in_array($type, ['production', 'distribution', 'sales'], true) ? $request->validate([
+        $filters = in_array($type, ['production', 'sales'], true) ? $request->validate([
             $searchKey => ['nullable', 'string', 'max:80'],
             'from' => ['nullable', 'date_format:Y-m-d'],
             'to' => ['nullable', 'date_format:Y-m-d', ...($request->filled('from') ? ['after_or_equal:from'] : [])],
@@ -211,19 +271,6 @@ class OperationsController extends Controller
                 $productionQuery->whereDate('produced_on', '<=', $filters['to']);
             }
         }
-        $dispatchQuery = Dispatch::query();
-        if ($type === 'distribution') {
-            $orderNumber = trim($filters['order'] ?? '');
-            if ($orderNumber !== '') {
-                $dispatchQuery->whereHas('order', fn ($query) => $query->where('order_number', 'like', '%'.$orderNumber.'%'));
-            }
-            if (! empty($filters['from'])) {
-                $dispatchQuery->whereDate('dispatched_on', '>=', $filters['from']);
-            }
-            if (! empty($filters['to'])) {
-                $dispatchQuery->whereDate('dispatched_on', '<=', $filters['to']);
-            }
-        }
         $invoiceQuery = Invoice::query();
         if ($type === 'sales') {
             $invoiceNumber = trim($filters['invoice'] ?? '');
@@ -242,18 +289,15 @@ class OperationsController extends Controller
         }
         $rows = match ($type) {
             'production' => (clone $productionQuery)->with('product')->orderByDesc('produced_on')->orderByDesc('id')->paginate(20)->withQueryString(),
-            'distribution' => (clone $dispatchQuery)->with(['order.customer', 'order.deliveryTrips', 'lines'])->orderByDesc('dispatched_on')->orderByDesc('id')->paginate(20)->withQueryString(),
             'sales' => (clone $invoiceQuery)->with(['order.customer', 'order.items', 'activePayments'])->orderByDesc('issued_on')->orderByDesc('id')->paginate(20)->withQueryString(),
             default => abort(404),
         };
 
         $summary = match ($type) {
             'production' => null,
-            'distribution' => ['label' => 'Cases dispatched', 'value' => DB::table('dispatch_lines')->whereIn('dispatch_id', (clone $dispatchQuery)->select('id'))->sum('cases'), 'suffix' => 'cases'],
             'sales' => ['label' => 'Invoiced sales', 'value' => (clone $invoiceQuery)->sum('amount'), 'suffix' => 'KSh'],
         };
 
-        $trips = $type === 'distribution' ? DeliveryTrip::query()->withCount('orders')->orderByDesc('delivery_on')->orderByDesc('id')->limit(20)->get() : collect();
         $products = $type === 'production' ? Product::query()->orderBy('volume_ml')->get() : collect();
         $productionSummary = null;
         $businessToday = null;
@@ -271,7 +315,7 @@ class OperationsController extends Controller
             ];
         }
 
-        return view('operations.packaged-index', compact('type', 'rows', 'summary', 'filters', 'trips', 'products', 'productionSummary', 'businessToday'));
+        return view('operations.packaged-index', compact('type', 'rows', 'summary', 'filters', 'products', 'productionSummary', 'businessToday'));
     }
 
     private function authorizeType(Request $request, string $type): void

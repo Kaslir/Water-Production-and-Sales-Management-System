@@ -90,11 +90,24 @@ class DeliveryPricingAndTripsTest extends TestCase
         foreach ([$orderA, $orderB] as $order) {
             $this->actingAs($manager)->post(route('packaged.orders.confirm', $order))->assertRedirect();
         }
+        $this->actingAs($distribution)->get(route('distribution.index'))->assertOk()
+            ->assertSee('2 orders')->assertSee($orderA->order_number)->assertSee($orderB->order_number)
+            ->assertSee('Westlands')->assertSee('Industrial Area')->assertSee('Assign to Trip');
+        $this->actingAs($distribution)->get(route('distribution.index', [
+            'delivery_zone_id' => $this->area('Westlands')->delivery_zone_id,
+            'customer' => 'Hotel A',
+            'from' => today()->toDateString(),
+            'to' => today()->toDateString(),
+        ]))->assertOk()->assertSee($orderA->order_number)->assertViewHas('rows', fn ($rows) => $rows->total() === 1 && $rows->first()->id === $orderA->id);
+        $this->actingAs($distribution)->get(route('packaged.trips.create', ['order_id' => $orderA->id]))->assertOk()
+            ->assertSee('value="'.$orderA->id.'" checked', false);
         $this->actingAs($distribution)->post(route('packaged.orders.dispatch', $orderA), ['delivery_reference' => 'TOO-EARLY'])->assertSessionHasErrors('workflow');
         $this->actingAs($distribution)->post(route('packaged.trips.store'), ['truck_identifier' => 'KDA 123A', 'driver_name' => 'Driver One', 'delivery_on' => today()->toDateString(), 'order_ids' => [$orderA->id, $orderB->id]])->assertRedirect();
         $trip = DeliveryTrip::firstOrFail();
         $this->assertSame(30, $batch->fresh()->cases_on_hand);
         $this->assertSame(2, $trip->orders()->count());
+        $this->actingAs($distribution)->get(route('distribution.index', ['tab' => 'trips']))->assertOk()
+            ->assertSee('1 trips')->assertSee('Trip #'.$trip->id)->assertSee('KDA 123A')->assertSee('Planned');
         $this->actingAs($distribution)->post(route('packaged.trips.expense', $trip), ['fuel_expense' => '2800.00', 'other_expense' => '400.00', 'expense_reference' => 'FUEL-001', 'reason' => 'Receipts checked'])->assertRedirect();
         $this->assertSame(3200.0, $trip->fresh()->totalExpense());
         $this->assertDatabaseCount('operating_expenses', 0);
@@ -108,6 +121,10 @@ class DeliveryPricingAndTripsTest extends TestCase
             $this->actingAs($manager)->post(route('packaged.orders.invoice', $order))->assertRedirect();
         }
         $this->assertSame(10, $batch->fresh()->cases_on_hand);
+        $this->actingAs($distribution)->get(route('distribution.index'))->assertOk()
+            ->assertSee('0 orders')->assertViewHas('rows', fn ($rows) => $rows->total() === 0);
+        $this->actingAs($distribution)->get(route('distribution.index', ['tab' => 'history', 'customer' => 'Hotel A', 'status' => 'delivered']))->assertOk()
+            ->assertSee($orderA->order_number)->assertSee('KDA 123A')->assertViewHas('rows', fn ($rows) => $rows->total() === 1 && $rows->first()->order->id === $orderA->id);
         $this->assertSame(7400.0, (float) $orderA->fresh()->invoice->amount);
         $this->assertSame(7000.0, (float) $orderB->fresh()->invoice->amount);
         $this->actingAs($manager)->get(route('packaged.reports.index', ['from' => today()->toDateString(), 'to' => today()->toDateString()]))->assertOk()

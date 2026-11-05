@@ -88,9 +88,9 @@ class PackagedWaterWorkflowTest extends TestCase
         $this->actingAs($actor)->get(route('packaged.reports.index'))->assertOk()->assertSee('1,200.00');
         $this->actingAs($actor)->get(route('dashboard'))->assertOk()->assertSee('Recent customer orders')->assertSee('EARLY')->assertSee('1,200');
         $this->actingAs($actor)->get(route('production.index'))->assertOk()->assertSee('EARLY')->assertSee('cases');
-        $this->actingAs($actor)->get(route('inventory.index'))->assertOk()->assertSee('AVAILABLE SALEABLE STOCK')->assertSee('Movement history');
-        $this->actingAs($actor)->get(route('inventory.index', ['tab' => 'movements']))->assertOk()->assertSee('Customer dispatch');
-        $this->actingAs($actor)->get(route('distribution.index'))->assertOk()->assertSee('Nairobi')->assertSee('Hotel');
+        $this->actingAs($actor)->get(route('inventory.index'))->assertOk()->assertSee('AVAILABLE SALEABLE STOCK')->assertSee('Movement History');
+        $this->actingAs($actor)->get(route('inventory.index', ['tab' => 'movements']))->assertOk()->assertSee('Customer Dispatch');
+        $this->actingAs($actor)->get(route('distribution.index', ['tab' => 'history']))->assertOk()->assertSee('Nairobi')->assertSee('Hotel');
         $this->actingAs($actor)->get(route('sales.index'))->assertOk()->assertSee('Hotel')->assertSee('1,200.00');
         $this->actingAs($actor)->get(route('analytics.index'))->assertOk()->assertSee('Customer order demand')->assertSee('12');
         foreach (['sales', 'production', 'inventory', 'distribution', 'customers', 'costs', 'expiry', 'disposals'] as $reportType) {
