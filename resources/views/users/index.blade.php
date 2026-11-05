@@ -6,17 +6,16 @@
 </style>
 
 <div class="d-flex justify-content-between align-items-center gap-3 mb-3">
-    <p class="small text-muted mb-0">Manage staff accounts, roles, and access requests.</p>
+    <p class="small text-muted mb-0">Invite employees and manage their roles and access.</p>
     <div class="d-flex gap-2 align-items-center">
-        <a class="btn btn-outline-brand w-auto mt-0" href="{{ route('access.reviews.index') }}">Pending requests</a>
-        <a class="btn btn-brand btn-sm" href="{{ route('users.create') }}"><i class="bi bi-person-plus me-1"></i>Add user</a>
+        <a class="btn btn-brand btn-sm" href="{{ route('users.create') }}"><i class="bi bi-person-plus me-1"></i>Add Employee</a>
     </div>
 </div>
 
 <form class="toolbar mb-3" method="get" action="{{ route('users.index') }}">
     <div class="flex-grow-1" style="min-width:220px"><label class="form-label" for="user-search">Search users</label><input class="form-control" id="user-search" name="search" value="{{ $search }}" placeholder="Name or email"></div>
     <div style="min-width:180px"><label class="form-label" for="user-role">Role</label><select class="form-select" id="user-role" name="role"><option value="">All roles</option>@foreach(\App\Models\User::ROLES as $option)<option value="{{ $option }}" @selected($role === $option)>{{ ucwords(str_replace('_', ' ', $option)) }}</option>@endforeach</select></div>
-    <div style="min-width:150px"><label class="form-label" for="user-status">Status</label><select class="form-select" id="user-status" name="status"><option value="active" @selected($status === 'active')>Active</option><option value="inactive" @selected($status === 'inactive')>Inactive</option><option value="all" @selected($status === 'all')>All users</option></select></div>
+    <div style="min-width:150px"><label class="form-label" for="user-status">Status</label><select class="form-select" id="user-status" name="status"><option value="active" @selected($status === 'active')>Active</option><option value="pending" @selected($status === 'pending')>Pending Activation</option><option value="deactivated" @selected($status === 'deactivated')>Deactivated</option><option value="all" @selected($status === 'all')>All employees</option></select></div>
     <div class="align-self-end d-flex gap-2"><button class="btn btn-brand" type="submit">Apply filters</button><a class="btn btn-outline-secondary" href="{{ route('users.index') }}">Clear</a></div>
 </form>
 
@@ -29,9 +28,9 @@
             <tr>
                 <td class="px-3"><div class="d-flex align-items-center gap-2"><span class="user-avatar" aria-hidden="true">{{ strtoupper(collect(explode(' ', trim($user->name)))->filter()->take(2)->map(fn ($part) => mb_substr($part, 0, 1))->implode('')) }}</span><div><strong>{{ $user->name }}</strong><small class="d-block text-muted">{{ $user->email }}</small></div></div></td>
                 <td><span class="badge text-bg-light border text-capitalize">{{ str_replace('_', ' ', $user->role) }}</span></td>
-                <td>@if($user->is_active)<span class="badge rounded-pill text-bg-success">Active</span>@else<span class="badge rounded-pill text-bg-secondary">Inactive</span>@endif</td>
+                <td>@if($user->is_active)<span class="badge rounded-pill text-bg-success">Active</span>@elseif($user->latestInvitation && ! $user->activated_at)<span class="badge rounded-pill text-bg-warning">Pending Activation</span><small class="d-block text-muted mt-1">Invitation {{ $user->latestInvitation->status === 'pending' && $user->latestInvitation->expires_at->isPast() ? 'expired' : $user->latestInvitation->status }}</small>@else<span class="badge rounded-pill text-bg-secondary">Deactivated</span>@endif</td>
                 <td class="small text-muted">{{ $user->created_at?->format('d M Y') }}</td>
-                <td class="text-end px-3"><div class="d-inline-flex align-items-center gap-2"><a class="btn btn-sm btn-outline-secondary" href="{{ route('users.edit', $user) }}" aria-label="Edit {{ $user->name }}">Edit</a>@if(! $user->is(auth()->user()) && $user->is_active)<form method="post" action="{{ route('users.destroy', $user) }}" onsubmit="return confirm('Deactivate this user? Historical records will remain.')">@csrf @method('DELETE')<button class="btn btn-sm btn-outline-danger" type="submit" aria-label="Deactivate {{ $user->name }}">Deactivate</button></form>@endif</div></td>
+                <td class="text-end px-3"><div class="d-inline-flex flex-wrap justify-content-end align-items-center gap-2"><a class="btn btn-sm btn-outline-secondary" href="{{ route('users.edit', $user) }}" aria-label="Edit {{ $user->name }}">Edit Employee</a>@if(! $user->is_active && $user->latestInvitation && ! $user->activated_at)<form method="post" action="{{ route('users.invitation.resend', $user) }}" onsubmit="return confirm('Send a new invitation and invalidate the previous link?')">@csrf<button class="btn btn-sm btn-outline-primary">Resend Invitation</button></form>@if($user->latestInvitation->status === 'pending')<form method="post" action="{{ route('users.invitation.revoke', $user) }}" onsubmit="return confirm('Revoke this invitation? The employee cannot activate with this link.')">@csrf<button class="btn btn-sm btn-outline-danger">Revoke Invitation</button></form>@endif @elseif(! $user->is(auth()->user()) && $user->is_active)<form method="post" action="{{ route('users.destroy', $user) }}" onsubmit="return confirm('Deactivate this employee? Historical records will remain.')">@csrf @method('DELETE')<button class="btn btn-sm btn-outline-danger" type="submit">Deactivate Employee</button></form>@endif</div></td>
             </tr>
         @empty
             <tr><td colspan="5" class="p-5 text-center text-muted">No users match these filters. Try another role, status, or search term.</td></tr>

@@ -2,14 +2,12 @@
 
 namespace Tests\Feature;
 
-use App\Mail\AccessApprovedMail;
-use App\Mail\AccessVerificationMail;
+use App\Mail\EmployeeInvitationMail;
 use App\Models\AccessRequest;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
-use Illuminate\Support\Facades\URL;
 use Tests\TestCase;
 
 class AccessRequestFlowTest extends TestCase
@@ -21,93 +19,134 @@ class AccessRequestFlowTest extends TestCase
         return User::create(['name' => 'Admin', 'email' => 'admin@example.test', 'password' => 'password-long-enough', 'role' => 'administrator', 'is_active' => true]);
     }
 
-    private function apply(string $email = 'applicant@example.test'): ?AccessRequest
-    {
-        $this->post(route('access.store'), [
-            'name' => 'Applicant Name',
-            'email' => $email,
-            'phone_number' => '0712345678',
-            'password' => 'long-test-password',
-            'password_confirmation' => 'long-test-password',
-        ])->assertRedirect(route('login'));
-
-        return AccessRequest::where('email', $email)->first();
-    }
-
-    public function test_verified_request_requires_admin_approval_before_login(): void
+    private function invite(User $administrator, string $role = 'inventory_staff'): array
     {
         Mail::fake();
-        $this->get(route('login'))->assertOk()->assertSee('Request access');
-        $this->get(route('access.create'))->assertOk()->assertSee('PHONE NUMBER');
-        $accessRequest = $this->apply();
-        $this->assertNotNull($accessRequest);
-        $this->assertDatabaseMissing('users', ['email' => $accessRequest->email]);
-        $this->assertTrue(Hash::check('long-test-password', $accessRequest->password));
-        Mail::assertSentCount(1);
-        Mail::assertSent(AccessVerificationMail::class, fn (AccessVerificationMail $mail) => $mail->hasTo($accessRequest->email));
-        (new AccessVerificationMail('https://example.test/verify'))->assertSeeInText('https://example.test/verify');
+        $this->actingAs($administrator)->post(route('users.store'), [
+            'name' => 'New Employee', 'email' => 'employee@example.test', 'phone_number' => '0712345678', 'role' => $role,
+        ])->assertRedirect(route('users.index', ['status' => 'pending']));
+        $employee = User::where('email', 'employee@example.test')->firstOrFail();
+        $invitation = $employee->latestInvitation()->firstOrFail();
+        $url = '';
+        Mail::assertSent(EmployeeInvitationMail::class, function (EmployeeInvitationMail $mail) use (&$url): bool {
+            $url = $mail->activationUrl;
 
-        $administrator = $this->administrator();
-        $this->actingAs($administrator)->post(route('access.reviews.approve', $accessRequest), ['role' => 'inventory_staff'])->assertStatus(422);
-        $this->actingAs($administrator)->get(route('users.index'))->assertOk()->assertSee('Pending requests');
-        $this->actingAs($administrator)->get(route('access.reviews.index'))->assertOk()->assertSee('Awaiting email verification');
-        $verificationUrl = URL::temporarySignedRoute('access.verify', now()->addDay(), ['accessRequest' => $accessRequest->id, 'nonce' => $accessRequest->verification_nonce]);
-        $this->get($verificationUrl)->assertRedirect(route('login'));
-        $this->assertNotNull($accessRequest->fresh()->email_verified_at);
-        $this->actingAs($administrator)->get(route('access.reviews.index'))->assertOk()->assertSee('Pending approval');
+            return $mail->hasTo('employee@example.test');
+        });
+        parse_str(parse_url($url, PHP_URL_QUERY) ?? '', $parameters);
 
-        $this->actingAs($administrator)->post(route('access.reviews.approve', $accessRequest), ['role' => 'inventory_staff'])->assertRedirect(route('access.reviews.index'));
-        $user = User::where('email', $accessRequest->email)->firstOrFail();
-        $this->assertSame('inventory_staff', $user->role);
-        $this->assertSame('0712345678', $user->phone_number);
-        $this->assertEquals(1, $user->is_active);
-        $this->assertNotNull($user->email_verified_at);
-        $this->assertTrue(Hash::check('long-test-password', $user->password));
-        $this->assertSame('approved', $accessRequest->fresh()->status);
-        Mail::assertSentCount(2);
-        Mail::assertSent(AccessApprovedMail::class, fn (AccessApprovedMail $mail) => $mail->hasTo($accessRequest->email));
-        (new AccessApprovedMail)->assertSeeInText('approved');
-        $this->assertDatabaseHas('audit_logs', ['event' => 'access_request.approved', 'actor_id' => $administrator->user_id]);
-        $this->actingAs($administrator)->post(route('access.reviews.approve', $accessRequest), ['role' => 'manager'])->assertStatus(422);
-        $this->post(route('logout'))->assertRedirect(route('login'));
-        $this->post(route('login.submit'), ['email' => $user->email, 'password' => 'long-test-password'])->assertRedirect(route('security.form'));
+        return [$employee, $invitation, $url, $parameters['token']];
     }
 
-    public function test_only_admin_can_review_and_rejected_request_can_be_resubmitted(): void
+    public function test_public_access_requests_are_disabled_and_history_is_preserved(): void
     {
-        Mail::fake();
-        $accessRequest = $this->apply();
+        AccessRequest::create(['name' => 'Old applicant', 'email' => 'old@example.test', 'phone_number' => '0712345678', 'password' => 'password-long-enough', 'verification_nonce' => 'historical-nonce', 'status' => 'pending']);
+        $this->get(route('login'))->assertOk()->assertSee('Contact your system administrator.')->assertDontSee('Request access');
+        $this->get('/request-access')->assertNotFound();
+        $this->post('/request-access', ['email' => 'visitor@example.test'])->assertNotFound();
+        $this->get('/request-access/verify/1')->assertNotFound();
+        $this->post(route('users.store'), ['email' => 'visitor@example.test'])->assertRedirect(route('login'));
+        $this->assertDatabaseHas('access_requests', ['email' => 'old@example.test', 'status' => 'pending']);
+        $this->assertDatabaseMissing('users', ['email' => 'visitor@example.test']);
+    }
+
+    public function test_only_an_administrator_can_invite_and_assign_an_employee_role(): void
+    {
         $staff = User::create(['name' => 'Staff', 'email' => 'staff@example.test', 'password' => 'password-long-enough', 'role' => 'sales_staff', 'is_active' => true]);
-        $this->actingAs($staff)->get(route('access.reviews.index'))->assertForbidden();
-        $this->actingAs($staff)->post(route('access.reviews.approve', $accessRequest), ['role' => 'sales_staff'])->assertForbidden();
+        $payload = ['name' => 'New Employee', 'email' => 'employee@example.test', 'phone_number' => '0712345678', 'role' => 'manager'];
+        $this->actingAs($staff)->post(route('users.store'), $payload)->assertForbidden();
         $administrator = $this->administrator();
-        $this->actingAs($administrator)->post(route('access.reviews.reject', $accessRequest))->assertRedirect();
-        $this->assertSame('rejected', $accessRequest->fresh()->status);
-        $this->assertDatabaseMissing('users', ['email' => $accessRequest->email]);
-        $this->app['auth']->forgetGuards();
-        $newRequest = $this->apply();
-        $this->assertSame($accessRequest->id, $newRequest->id);
-        $this->assertSame('pending', $newRequest->status);
-        $this->assertNull($newRequest->email_verified_at);
+        $this->actingAs($administrator)->post(route('users.store'), [...$payload, 'role' => 'auditor'])->assertSessionHasErrors('role');
+        [$employee] = $this->invite($administrator, 'manager');
+        $this->actingAs($staff)->post(route('users.invitation.resend', $employee))->assertForbidden();
+        $this->actingAs($staff)->post(route('users.invitation.revoke', $employee))->assertForbidden();
+        $this->assertSame('manager', $employee->role);
+        $this->assertFalse((bool) $employee->is_active);
+        $this->assertSame('0712345678', $employee->phone_number);
+        $this->assertDatabaseHas('audit_logs', ['event' => 'employee.invited', 'actor_id' => $administrator->user_id]);
+        $this->actingAs($administrator)->post(route('users.store'), $payload)->assertSessionHasErrors('email');
+        $this->assertDatabaseCount('employee_invitations', 1);
     }
 
-    public function test_old_verification_link_cannot_verify_a_new_request(): void
+    public function test_invited_employee_activates_once_and_then_uses_the_normal_security_code_login(): void
     {
-        Mail::fake();
-        $accessRequest = $this->apply();
-        $oldUrl = URL::temporarySignedRoute('access.verify', now()->addDay(), ['accessRequest' => $accessRequest->id, 'nonce' => $accessRequest->verification_nonce]);
-        $accessRequest->update(['status' => 'rejected']);
-        $newRequest = $this->apply();
-        $this->get($oldUrl)->assertForbidden();
-        $this->assertNull($newRequest->fresh()->email_verified_at);
+        [$employee, $invitation, $url, $token] = $this->invite($this->administrator());
+        $this->post(route('logout'))->assertRedirect(route('login'));
+        $this->post(route('login.submit'), ['email' => $employee->email, 'password' => 'chosen-password-long'])->assertSessionHasErrors('email');
+        $this->get($url)->assertOk()->assertSee('Activate Your Account')->assertSee($employee->name)->assertSee('Inventory Staff');
+        $this->post(route('invitations.accept', $invitation), ['token' => $token, 'role' => 'administrator', 'email' => 'changed@example.test', 'password' => 'chosen-password-long', 'password_confirmation' => 'chosen-password-long'])->assertRedirect(route('login'));
+        $employee->refresh();
+        $this->assertSame('inventory_staff', $employee->role);
+        $this->assertSame('employee@example.test', $employee->email);
+        $this->assertTrue((bool) $employee->is_active);
+        $this->assertNotNull($employee->activated_at);
+        $this->assertNotNull($employee->email_verified_at);
+        $this->assertTrue(Hash::check('chosen-password-long', $employee->password));
+        $this->assertSame('accepted', $invitation->fresh()->status);
+        $this->get($url)->assertSee('already been used');
+        $this->post(route('invitations.accept', $invitation), ['token' => $token, 'password' => 'another-password-long', 'password_confirmation' => 'another-password-long'])->assertStatus(422);
+        $this->post(route('login.submit'), ['email' => $employee->email, 'password' => 'chosen-password-long'])->assertRedirect(route('security.form'));
+        $this->assertDatabaseHas('audit_logs', ['event' => 'employee.activated', 'actor_id' => $employee->user_id]);
     }
 
-    public function test_existing_email_receives_generic_response_without_new_request(): void
+    public function test_expired_invalid_and_revoked_invitations_do_not_activate_accounts(): void
     {
-        Mail::fake();
-        $this->administrator();
-        $this->apply('admin@example.test');
-        $this->assertDatabaseCount('access_requests', 0);
-        Mail::assertNothingSent();
+        [$employee, $invitation, $url, $token] = $this->invite($this->administrator());
+        $this->post(route('logout'));
+        $this->get(route('invitations.show', ['invitation' => $invitation, 'token' => str_repeat('x', 64)]))->assertSee('invalid or has been revoked')->assertDontSee($employee->email);
+        $this->post(route('invitations.accept', $invitation), ['token' => str_repeat('x', 64), 'password' => 'chosen-password-long', 'password_confirmation' => 'chosen-password-long'])->assertStatus(422);
+        $invitation->update(['expires_at' => now()->subMinute()]);
+        $this->get($url)->assertSee('This invitation has expired');
+        $this->post(route('invitations.accept', $invitation), ['token' => $token, 'password' => 'chosen-password-long', 'password_confirmation' => 'chosen-password-long'])->assertStatus(422);
+        $invitation->update(['expires_at' => now()->addDay()]);
+        $this->actingAs($this->administratorFromDatabase())->post(route('users.invitation.revoke', $employee))->assertRedirect();
+        $this->assertDatabaseHas('audit_logs', ['event' => 'employee.invitation_revoked', 'actor_id' => $this->administratorFromDatabase()->user_id]);
+        $this->post(route('logout'));
+        $this->get($url)->assertSee('invalid or has been revoked');
+        $this->post(route('invitations.accept', $invitation), ['token' => $token, 'password' => 'chosen-password-long', 'password_confirmation' => 'chosen-password-long'])->assertStatus(422);
+        $this->assertFalse((bool) $employee->fresh()->is_active);
+    }
+
+    public function test_resend_revokes_old_link_and_correcting_email_sends_a_new_one(): void
+    {
+        $administrator = $this->administrator();
+        [$employee, $oldInvitation, $oldUrl, $oldToken] = $this->invite($administrator);
+        $this->actingAs($administrator)->post(route('users.invitation.resend', $employee))->assertRedirect();
+        $this->assertSame('revoked', $oldInvitation->fresh()->status);
+        $this->assertSame('pending', $employee->latestInvitation()->first()->status);
+        $this->post(route('logout'));
+        $this->get($oldUrl)->assertSee('invalid or has been revoked');
+        $this->post(route('invitations.accept', $oldInvitation), ['token' => $oldToken, 'password' => 'chosen-password-long', 'password_confirmation' => 'chosen-password-long'])->assertStatus(422);
+        $this->actingAs($administrator)->put(route('users.update', $employee), ['name' => 'Corrected Name', 'email' => 'corrected@example.test', 'phone_number' => '0712345678', 'role' => 'production_staff'])->assertRedirect();
+        $this->assertSame('corrected@example.test', $employee->fresh()->email);
+        $this->assertDatabaseCount('employee_invitations', 3);
+    }
+
+    public function test_last_administrator_and_existing_employee_access_are_preserved(): void
+    {
+        $administrator = $this->administrator();
+        $existing = User::create(['name' => 'Existing', 'email' => 'existing@example.test', 'password' => 'password-long-enough', 'role' => 'manager', 'is_active' => true]);
+        $this->actingAs($administrator)->delete(route('users.destroy', $administrator))->assertStatus(422);
+        $this->actingAs($administrator)->put(route('users.update', $administrator), ['name' => $administrator->name, 'email' => $administrator->email, 'phone_number' => '0712345678', 'role' => 'manager', 'is_active' => 1])->assertStatus(422);
+        $this->actingAs($existing)->get(route('packaged.reports.index'))->assertOk();
+    }
+
+    public function test_initial_administrator_can_only_be_bootstrapped_into_an_empty_installation(): void
+    {
+        $this->artisan('app:bootstrap-administrator')
+            ->expectsQuestion('Full name', 'First Admin')
+            ->expectsQuestion('Email address', 'first@example.test')
+            ->expectsQuestion('Phone number (0712345678)', '0712345678')
+            ->expectsQuestion('Password (at least 12 characters)', 'first-password-long')
+            ->expectsQuestion('Confirm password', 'first-password-long')
+            ->assertExitCode(0);
+        $this->assertDatabaseHas('users', ['email' => 'first@example.test', 'role' => 'administrator', 'is_active' => true]);
+        $this->artisan('app:bootstrap-administrator')->assertExitCode(1);
+        $this->assertDatabaseCount('users', 1);
+    }
+
+    private function administratorFromDatabase(): User
+    {
+        return User::where('role', 'administrator')->firstOrFail();
     }
 }

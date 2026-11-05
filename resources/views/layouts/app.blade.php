@@ -58,7 +58,7 @@
                 @if (auth()->user()->hasRole('administrator', 'manager'))<a class="side-link {{ request()->routeIs('packaged.manufacturing-settings.*') ? 'active' : '' }}" href="{{ route('packaged.manufacturing-settings.index') }}"><i class="bi bi-gear"></i>Manufacturing settings</a>@endif
                 @if (auth()->user()->hasRole('administrator', 'manager'))<a class="side-link {{ request()->routeIs('packaged.pricing.*') ? 'active' : '' }}" href="{{ route('packaged.pricing.index') }}"><i class="bi bi-tags"></i>Products &amp; pricing</a>@endif
                 @if (auth()->user()->hasRole('administrator', 'manager'))<a class="side-link {{ request()->routeIs('packaged.delivery-zones.*') ? 'active' : '' }}" href="{{ route('packaged.delivery-zones.index') }}"><i class="bi bi-truck"></i>Delivery zones</a>@endif
-                @if (auth()->user()->hasRole('administrator'))<a class="side-link {{ request()->routeIs('users.*', 'access.reviews.*') ? 'active' : '' }}" href="{{ route('users.index') }}"><i class="bi bi-person-gear"></i>Users</a>@endif
+                @if (auth()->user()->hasRole('administrator'))<a class="side-link {{ request()->routeIs('users.*') ? 'active' : '' }}" href="{{ route('users.index') }}"><i class="bi bi-person-gear"></i>Users</a>@endif
                 @if (auth()->user()->hasRole('administrator', 'auditor'))<a class="side-link {{ request()->routeIs('logs.*', 'audit.*', 'technical-events.*') ? 'active' : '' }}" href="{{ route('logs.index') }}"><i class="bi bi-journal-text"></i>Logs</a>@endif
             </nav>
         </div>

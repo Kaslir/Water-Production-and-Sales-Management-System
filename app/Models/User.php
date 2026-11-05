@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
@@ -21,11 +22,24 @@ class User extends Authenticatable
     {
         return [
             'email_verified_at' => 'datetime',
+            'activated_at' => 'datetime',
             'password' => 'hashed',
         ];
     }
 
     public const ROLES = ['administrator', 'manager', 'production_staff', 'inventory_staff', 'distribution_staff', 'sales_staff', 'auditor'];
+
+    public const EMPLOYEE_ROLES = ['administrator', 'manager', 'production_staff', 'inventory_staff', 'distribution_staff', 'sales_staff'];
+
+    public function employeeInvitations(): HasMany
+    {
+        return $this->hasMany(EmployeeInvitation::class, 'user_id', 'user_id');
+    }
+
+    public function latestInvitation(): HasOne
+    {
+        return $this->hasOne(EmployeeInvitation::class, 'user_id', 'user_id')->latestOfMany();
+    }
 
     public function isAdminOrManager(): bool
     {

@@ -15,6 +15,9 @@ class DatabaseSeeder extends Seeder
     
     public function run(): void
     {
+        if (app()->isProduction()) {
+            throw new \RuntimeException('Demo accounts cannot be seeded in production. Use app:bootstrap-administrator on an empty installation.');
+        }
         $users=[]; foreach (['administrator'=>'Administrator','manager'=>'Manager','production_staff'=>'Production Staff','inventory_staff'=>'Inventory Staff','distribution_staff'=>'Distribution Staff','sales_staff'=>'Sales Staff'] as $role=>$name) $users[$role]=User::create(['name'=>$name,'email'=>str_replace('_','.',$role).'@aquatrack.test','role'=>$role,'password'=>Hash::make('Password123!')]);
         Inventory::create(['quantity_available'=>0,'last_updated'=>now()]); $stock=app(InventoryService::class);
         $customer=Customer::create(['name'=>'Nairobi Fresh Mart','phone_number'=>'0712345678']);
