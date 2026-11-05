@@ -69,7 +69,7 @@
         <form method="post" action="{{ route('logout') }}">@csrf<button class="side-link border-0 bg-transparent w-100 text-start"><i class="bi bi-box-arrow-left"></i>Log out</button></form>
     </div>
 </aside>
-<section class="page"><header class="topbar"><div><div class="breadcrumb-label">WATER MANAGEMENT</div><div class="page-title">@yield('page-title', 'Overview')</div></div><div class="top-user d-flex align-items-center gap-3">
+<section class="page"><header class="topbar"><div><div class="breadcrumb-label">WATER MANAGEMENT</div><div class="page-title">@yield('page-title', 'Overview')</div>@hasSection('page-subtitle')<div class="tiny">@yield('page-subtitle')</div>@endif</div><div class="top-user d-flex align-items-center gap-3">
     <div class="dropdown">
         <button class="notification-bell position-relative" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Notifications, {{ $unreadAlertCount }} unread"><i class="bi bi-bell fs-5"></i>@if ($unreadAlertCount > 0)<span class="badge rounded-pill bg-danger notification-count">{{ $unreadAlertCount > 99 ? '99+' : $unreadAlertCount }}</span>@endif</button>
         <div class="dropdown-menu dropdown-menu-end notification-menu p-0 shadow">

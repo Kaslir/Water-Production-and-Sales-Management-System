@@ -3,62 +3,34 @@
 namespace App\Http\Controllers;
 
 use App\Models\BatchActualCost;
-use App\Models\CustomerRefund;
 use App\Models\DeliveryFeeCredit;
-use App\Models\DeliveryTrip;
 use App\Models\Invoice;
 use App\Models\OperatingExpense;
-use App\Models\Payment;
 use App\Models\ProductionBatch;
-use App\Models\SalesOrder;
 use App\Models\SalesOrderItem;
 use App\Models\SalesReturn;
 use App\Services\AuditTrail;
+use App\Services\PackagedFinancialSummary;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
 
 class PackagedReportController extends Controller
 {
-    public function index(Request $request): View
+    public function index(Request $request, PackagedFinancialSummary $financial): View
     {
         $dates = $request->validate(['from' => ['nullable', 'date'], 'to' => ['nullable', 'date', 'after_or_equal:from']]);
-        $from = $dates['from'] ?? today()->startOfMonth()->toDateString();
-        $to = $dates['to'] ?? today()->toDateString();
+        $today = CarbonImmutable::today(config('app.business_timezone'));
+        $from = $dates['from'] ?? $today->subDays(29)->toDateString();
+        $to = $dates['to'] ?? $today->toDateString();
         $invoices = Invoice::query()->with(['order.customer', 'order.items.product', 'order.dispatch.lines', 'activePayments', 'deliveryFeeCredit'])->whereDate('issued_on', '>=', $from)->whereDate('issued_on', '<=', $to)->orderByDesc('issued_on')->get();
         $returns = SalesReturn::query()->with(['invoice.order.customer', 'line'])->whereDate('returned_on', '>=', $from)->whereDate('returned_on', '<=', $to)->get();
-        $credits = (float) $returns->sum('credit_amount');
         $deliveryFeeCredits = DeliveryFeeCredit::query()->with('invoice.order.customer')->whereDate('created_at', '>=', $from)->whereDate('created_at', '<=', $to)->get();
-        $deliveryFeeCreditsTotal = (float) $deliveryFeeCredits->sum('amount');
-        $deliveryFeeRevenue = (float) $invoices->sum(fn (Invoice $invoice) => (float) $invoice->order->delivery_fee) - $deliveryFeeCreditsTotal;
-        $bottledRevenue = (float) $invoices->sum(fn (Invoice $invoice) => (float) $invoice->amount - (float) $invoice->order->delivery_fee) - $credits;
-        $revenue = $bottledRevenue + $deliveryFeeRevenue;
-        $costOfGoodsSold = (float) DB::table('dispatch_lines')
-            ->join('dispatches', 'dispatch_lines.dispatch_id', '=', 'dispatches.id')
-            ->join('invoices', 'dispatches.sales_order_id', '=', 'invoices.sales_order_id')
-            ->whereDate('invoices.issued_on', '>=', $from)->whereDate('invoices.issued_on', '<=', $to)
-            ->selectRaw('COALESCE(SUM(dispatch_lines.cases * dispatch_lines.cost_per_case), 0) total')
-            ->value('total');
-        $deliveryCost = (float) SalesOrder::query()->whereHas('invoice', fn ($query) => $query->whereDate('issued_on', '>=', $from)->whereDate('issued_on', '<=', $to))->sum('delivery_cost');
-        $tripExpenses = (float) DeliveryTrip::query()->whereDate('delivery_on', '>=', $from)->whereDate('delivery_on', '<=', $to)->selectRaw('COALESCE(SUM(fuel_expense + other_expense), 0) total')->value('total');
         $expenses = OperatingExpense::query()->whereDate('expense_date', '>=', $from)->whereDate('expense_date', '<=', $to)->orderByDesc('expense_date')->get();
-        $operatingExpenses = (float) $expenses->whereNull('reversed_at')->sum('amount');
-        $disposalLoss = (float) DB::table('batch_disposals')
-            ->join('production_batches', 'batch_disposals.production_batch_id', '=', 'production_batches.id')
-            ->whereDate('batch_disposals.disposed_on', '>=', $from)->whereDate('batch_disposals.disposed_on', '<=', $to)
-            ->selectRaw('COALESCE(SUM(batch_disposals.cases * production_batches.cost_per_case), 0) total')
-            ->value('total');
-        $cashCollected = (float) Payment::query()->whereNull('reversed_at')->whereDate('paid_on', '>=', $from)->whereDate('paid_on', '<=', $to)->sum('amount');
-        $refundsPaid = (float) CustomerRefund::query()->whereDate('refunded_on', '>=', $from)->whereDate('refunded_on', '<=', $to)->sum('amount');
-        $balances = Invoice::query()->with(['returns', 'activePayments', 'refunds', 'deliveryFeeCredit'])->get(['id', 'amount']);
-        $outstanding = (float) $balances->sum(fn (Invoice $invoice) => max(0, (float) $invoice->amount - (float) $invoice->returns->sum('credit_amount') - (float) ($invoice->deliveryFeeCredit?->amount ?? 0) - (float) $invoice->activePayments->sum('amount') + (float) $invoice->refunds->sum('amount')));
-        $customerCreditDue = (float) $balances->sum(fn (Invoice $invoice) => max(0, (float) $invoice->activePayments->sum('amount') - ((float) $invoice->amount - (float) $invoice->returns->sum('credit_amount') - (float) ($invoice->deliveryFeeCredit?->amount ?? 0)) - (float) $invoice->refunds->sum('amount')));
-        $stockCountLoss = (float) DB::table('stock_movements')->join('production_batches', 'stock_movements.production_batch_id', '=', 'production_batches.id')->where('stock_movements.reason', 'stocktake_adjustment')->where('stock_movements.signed_cases', '<', 0)->whereDate('stock_movements.created_at', '>=', $from)->whereDate('stock_movements.created_at', '<=', $to)->selectRaw('COALESCE(SUM(-stock_movements.signed_cases * production_batches.cost_per_case), 0) total')->value('total');
+        $summary = $financial->forPeriod($from, $to, $invoices, $returns, $deliveryFeeCredits, $expenses);
         $actualCostRows = BatchActualCost::query()->with('batch.product')->whereHas('batch', fn ($query) => $query->whereDate('produced_on', '>=', $from)->whereDate('produced_on', '<=', $to))->get();
         $actualCostVariance = (float) $actualCostRows->sum(fn (BatchActualCost $cost) => (float) $cost->actual_total - (float) $cost->batch->total_cost);
-        $grossProfit = $revenue - $costOfGoodsSold;
-        $operatingProfit = $grossProfit - $deliveryCost - $tripExpenses - $operatingExpenses - $disposalLoss - $stockCountLoss;
         $nearExpiry = ProductionBatch::query()->with('product')->where('cases_on_hand', '>', 0)->whereDate('expires_on', '<=', today()->addDays(30))->orderBy('expires_on')->get();
         $productPerformance = [];
         $customerPerformance = [];
@@ -95,7 +67,7 @@ class PackagedReportController extends Controller
             $customerPerformance[$customer->customer_id]['revenue'] -= (float) $credit->amount;
         }
 
-        return view('packaged.reports', compact('from', 'to', 'invoices', 'returns', 'credits', 'deliveryFeeCreditsTotal', 'deliveryFeeRevenue', 'bottledRevenue', 'revenue', 'costOfGoodsSold', 'deliveryCost', 'tripExpenses', 'operatingExpenses', 'disposalLoss', 'cashCollected', 'refundsPaid', 'outstanding', 'customerCreditDue', 'stockCountLoss', 'actualCostVariance', 'actualCostRows', 'expenses', 'grossProfit', 'operatingProfit', 'nearExpiry', 'productPerformance', 'customerPerformance'));
+        return view('packaged.reports', $summary + compact('from', 'to', 'invoices', 'returns', 'actualCostVariance', 'actualCostRows', 'expenses', 'nearExpiry', 'productPerformance', 'customerPerformance'));
     }
 
     public function expense(Request $request, AuditTrail $auditTrail): RedirectResponse
