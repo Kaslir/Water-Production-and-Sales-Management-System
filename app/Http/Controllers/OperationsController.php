@@ -7,11 +7,14 @@ use App\Models\DeliveryArea;
 use App\Models\DeliveryTrip;
 use App\Models\Dispatch;
 use App\Models\Invoice;
+use App\Models\Product;
 use App\Models\ProductionBatch;
 use App\Models\StockMovement;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
@@ -189,11 +192,15 @@ class OperationsController extends Controller
             $searchKey => ['nullable', 'string', 'max:80'],
             'from' => ['nullable', 'date_format:Y-m-d'],
             'to' => ['nullable', 'date_format:Y-m-d', ...($request->filled('from') ? ['after_or_equal:from'] : [])],
+            ...($type === 'production' ? ['product_id' => ['nullable', 'integer', Rule::exists('products', 'id')]] : []),
             ...($type === 'sales' ? ['status' => ['nullable', 'in:unpaid,part_paid,paid,credited,settled,credit_due']] : []),
         ]) : [];
         $productionQuery = ProductionBatch::query();
         if ($type === 'production') {
             $batchCode = trim($filters['batch'] ?? '');
+            if (! empty($filters['product_id'])) {
+                $productionQuery->where('product_id', $filters['product_id']);
+            }
             if ($batchCode !== '') {
                 $productionQuery->where('batch_code', 'like', '%'.$batchCode.'%');
             }
@@ -241,14 +248,30 @@ class OperationsController extends Controller
         };
 
         $summary = match ($type) {
-            'production' => ['label' => 'Cases produced', 'value' => (clone $productionQuery)->sum('cases_produced'), 'suffix' => 'cases'],
+            'production' => null,
             'distribution' => ['label' => 'Cases dispatched', 'value' => DB::table('dispatch_lines')->whereIn('dispatch_id', (clone $dispatchQuery)->select('id'))->sum('cases'), 'suffix' => 'cases'],
             'sales' => ['label' => 'Invoiced sales', 'value' => (clone $invoiceQuery)->sum('amount'), 'suffix' => 'KSh'],
         };
 
         $trips = $type === 'distribution' ? DeliveryTrip::query()->withCount('orders')->orderByDesc('delivery_on')->orderByDesc('id')->limit(20)->get() : collect();
+        $products = $type === 'production' ? Product::query()->orderBy('volume_ml')->get() : collect();
+        $productionSummary = null;
+        $businessToday = null;
+        if ($type === 'production') {
+            $businessToday = CarbonImmutable::today(config('app.business_timezone'));
+            $totals = ProductionBatch::query()->selectRaw(
+                'COALESCE(SUM(cases_produced), 0) as all_time_cases, COALESCE(SUM(CASE WHEN produced_on >= ? AND produced_on < ? THEN cases_produced ELSE 0 END), 0) as month_cases, COALESCE(SUM(CASE WHEN status = ? THEN 1 ELSE 0 END), 0) as pending_batches',
+                [$businessToday->startOfMonth()->toDateString(), $businessToday->addDay()->toDateString(), 'quality_hold']
+            )->first();
+            $productionSummary = [
+                'all_time_cases' => (int) $totals->all_time_cases,
+                'month_cases' => (int) $totals->month_cases,
+                'pending_batches' => (int) $totals->pending_batches,
+                'month_label' => $businessToday->format('F Y'),
+            ];
+        }
 
-        return view('operations.packaged-index', compact('type', 'rows', 'summary', 'filters', 'trips'));
+        return view('operations.packaged-index', compact('type', 'rows', 'summary', 'filters', 'trips', 'products', 'productionSummary', 'businessToday'));
     }
 
     private function authorizeType(Request $request, string $type): void
