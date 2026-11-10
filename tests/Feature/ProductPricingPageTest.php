@@ -83,13 +83,17 @@ class ProductPricingPageTest extends TestCase
         $this->assertDatabaseMissing('audit_logs', ['event' => 'product.price_changed', 'subject_id' => $product->id]);
     }
 
-    public function test_margin_uses_only_an_effective_approved_manufacturing_policy(): void
+    public function test_pricing_page_hides_estimated_profit_and_margin(): void
     {
         $manager = $this->user('manager');
         $product = Product::where('sku', 'WATER-5L')->firstOrFail();
         $product->update(['default_price_per_case' => '100.00']);
         $this->actingAs($manager)->get(route('packaged.pricing.index'))
-            ->assertOk()->assertSee('Cost not configured');
+            ->assertOk()
+            ->assertSee('data-bs-target="#priceHistory"', false)
+            ->assertSee('id="priceHistory"', false)
+            ->assertDontSee('Estimated gross profit / case')
+            ->assertDontSee('Estimated gross margin');
 
         ProductManufacturingPolicy::create([
             'product_id' => $product->id,
@@ -106,6 +110,8 @@ class ProductPricingPageTest extends TestCase
             'approved_by' => $manager->user_id,
         ]);
         $this->actingAs($manager)->get(route('packaged.pricing.index'))
-            ->assertOk()->assertSee('KSh 50.00')->assertSee('50.0%');
+            ->assertOk()
+            ->assertDontSee('Estimated gross profit / case')
+            ->assertDontSee('Estimated gross margin');
     }
 }
