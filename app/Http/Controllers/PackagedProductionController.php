@@ -14,7 +14,6 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
-use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
 class PackagedProductionController extends Controller
@@ -33,7 +32,7 @@ class PackagedProductionController extends Controller
 
     public function show(ProductionBatch $batch): View
     {
-        $batch->load('product', 'manufacturingPolicy', 'actualCost', 'stockCounts');
+        $batch->load('product');
         $deliveries = DispatchLine::query()->with(['dispatch.order.customer'])->where('production_batch_id', $batch->id)->orderByDesc('id')->get();
 
         return view('packaged.batch-show', compact('batch', 'deliveries'));
@@ -86,16 +85,14 @@ class PackagedProductionController extends Controller
             'product_id' => ['required', Rule::exists('products', 'id')->where('is_active', true)],
             'produced_on' => ['required', 'date', 'before_or_equal:'.CarbonImmutable::today(config('app.business_timezone'))->toDateString()],
             'cases_produced' => ['required', 'integer', 'between:1,10000'],
-            'water_source_reference' => ['required', 'string', 'max:255'],
-            'water_input_litres' => ['required', 'numeric', 'gt:0', 'decimal:0,2'],
-            'treatment_log_reference' => ['required', 'string', 'max:255'],
-            'unplanned_reason' => ['nullable', 'string', 'max:500'],
+            'water_source_reference' => ['nullable', 'string', 'max:255'],
+            'treatment_log_reference' => ['nullable', 'string', 'max:255'],
+            'unplanned_approval' => ['nullable', 'boolean'],
         ]);
         $product = Product::findOrFail($data['product_id']);
-        $bottledLitres = $data['cases_produced'] * $product->bottles_per_case * $product->volume_ml / 1000;
-        if ((float) $data['water_input_litres'] < $bottledLitres) {
-            throw ValidationException::withMessages(['water_input_litres' => 'Water input cannot be less than the bottled volume of '.number_format($bottledLitres, 2).' L.']);
-        }
+        $data['water_input_litres'] = round($data['cases_produced'] * $product->bottles_per_case * $product->volume_ml / 1000, 2);
+        $data['unplanned_reason'] = ($data['unplanned_approval'] ?? false) ? 'Approved without a matching production plan.' : null;
+        unset($data['unplanned_approval']);
         $service->createBatch($data, $request->user()->user_id);
 
         return redirect()->route('inventory.index', ['tab' => 'batches'])->with('status', 'Batch recorded on quality hold.');
@@ -103,16 +100,7 @@ class PackagedProductionController extends Controller
 
     public function release(Request $request, ProductionBatch $batch, PackagedWaterService $service): RedirectResponse
     {
-        $data = $request->validate([
-            'quality_notes' => ['required', 'string', 'max:2000'],
-            'rejected_cases' => ['nullable', 'integer', 'min:0'],
-            'quality_tested_on' => ['required', 'date', 'after_or_equal:'.$batch->produced_on->toDateString(), 'before_or_equal:'.CarbonImmutable::today(config('app.business_timezone'))->toDateString()],
-            'quality_evidence_reference' => ['required', 'string', 'max:255'],
-            'quality_ph' => ['required', 'numeric', 'between:0,14', 'decimal:0,2'],
-            'quality_turbidity_ntu' => ['required', 'numeric', 'min:0', 'decimal:0,3'],
-            'microbiological_result' => ['required', 'in:pass'],
-        ]);
-        $service->releaseBatch($batch, $request->user()->user_id, $data['quality_notes'], (int) ($data['rejected_cases'] ?? 0), $data);
+        $service->releaseBatch($batch, $request->user()->user_id, 'Approved for sale by manager without recorded test results.');
 
         return back()->with('status', 'Batch released for sale.');
     }

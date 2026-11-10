@@ -63,7 +63,7 @@ class PackagedWaterService
             } else {
                 $actor = User::findOrFail($actorId);
                 $this->require($actor->hasRole('administrator', 'manager'), 'A manager must authorise production outside an approved plan.');
-                $this->require(filled($data['unplanned_reason'] ?? null), 'Explain why this batch is being produced outside an approved plan.');
+                $this->require(filled($data['unplanned_reason'] ?? null), 'A manager must select Yes to approve production outside an approved plan.');
             }
             $costFields = ['water_treatment_cost', 'bottle_cost', 'inbound_transport_cost', 'cap_label_cost', 'labour_cost', 'electricity_cost', 'other_production_cost'];
             $totalCost = round(array_sum(array_map(fn (string $field): float => (float) ($data[$field] ?? 0), $costFields)), 2);
@@ -135,6 +135,7 @@ class PackagedWaterService
         DB::transaction(function () use ($batch, $actorId, $reason): void {
             $batch = ProductionBatch::query()->lockForUpdate()->findOrFail($batch->id);
             $this->require(in_array($batch->status, ['quality_hold', 'released'], true), 'Only an unrecalled batch can be quarantined.');
+            $this->require($batch->cases_on_hand > 0, 'A batch with no cases on hand cannot be quarantined. Recall it if customers may have received affected cases.');
             $previous = $batch->status;
             $batch->update(['status' => 'quarantined', 'quality_notes' => $reason]);
             $affectedOrders = $this->resolveReservationsAfterBatchHold($batch, $actorId, $reason, 'quarantine');

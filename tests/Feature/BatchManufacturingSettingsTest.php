@@ -41,21 +41,29 @@ class BatchManufacturingSettingsTest extends TestCase
         $product = Product::where('sku', 'WATER-500ML')->firstOrFail();
 
         $this->actingAs($manager)->post(route('packaged.manufacturing-settings.store', $product), $this->settings())->assertRedirect();
-        $this->actingAs($staff)->get(route('packaged.batches.create'))->assertOk()->assertDontSee('Approved production plan (optional)')->assertDontSee('Total cost');
+        $this->actingAs($staff)->get(route('packaged.batches.create'))->assertOk()
+            ->assertDontSee('Approved production plan (optional)')
+            ->assertDontSee('Total cost')
+            ->assertDontSee('Water source reference')
+            ->assertDontSee('Treatment log reference')
+            ->assertDontSee('Water input (L)')
+            ->assertDontSee('Approve production without a matching plan?');
+        $this->actingAs($manager)->get(route('packaged.batches.create'))->assertOk()
+            ->assertSee('Approve production without a matching plan?')
+            ->assertSee('id="unplanned-no" value="0" checked', false);
         $batchData = [
             'product_id' => $product->id,
             'produced_on' => today()->toDateString(),
             'cases_produced' => 10,
-            'water_source_reference' => 'MUNICIPAL-METER-001',
-            'water_input_litres' => 130,
-            'treatment_log_reference' => 'TREATMENT-001',
-            'unplanned_reason' => 'Manager approved a trial production run',
             'expires_on' => today()->addYears(10)->toDateString(),
             'bottle_cost' => 0,
             'batch_code' => 'USER-OVERRIDE',
         ];
         $this->actingAs($staff)->post(route('packaged.batches.store'), $batchData)->assertSessionHasErrors('workflow');
         $this->assertDatabaseCount('production_batches', 0);
+        $this->actingAs($manager)->post(route('packaged.batches.store'), $batchData + ['unplanned_approval' => '0'])->assertSessionHasErrors('workflow');
+        $this->assertDatabaseCount('production_batches', 0);
+        $batchData['unplanned_approval'] = '1';
         $this->actingAs($manager)->post(route('packaged.batches.store'), $batchData)->assertRedirect(route('inventory.index', ['tab' => 'batches']));
 
         $batch = ProductionBatch::firstOrFail();
@@ -66,6 +74,10 @@ class BatchManufacturingSettingsTest extends TestCase
         $this->assertNotSame('USER-OVERRIDE', $batch->batch_code);
         $this->assertNotNull($batch->manufacturing_policy_id);
         $this->assertSame($manager->user_id, $batch->unplanned_authorized_by);
+        $this->assertNull($batch->water_source_reference);
+        $this->assertNull($batch->treatment_log_reference);
+        $this->assertSame(120.0, (float) $batch->water_input_litres);
+        $this->assertSame('Approved without a matching production plan.', $batch->unplanned_reason);
     }
 
     public function test_production_staff_cannot_approve_settings_and_unconfigured_products_cannot_be_recorded(): void
@@ -117,6 +129,7 @@ class BatchManufacturingSettingsTest extends TestCase
         ])->assertRedirect(route('inventory.index', ['tab' => 'batches']));
 
         $this->assertSame($plan->id, ProductionBatch::firstOrFail()->production_forecast_decision_id);
+        $this->assertSame(200.0, (float) ProductionBatch::firstOrFail()->water_input_litres);
         $this->assertSame(10, $plan->fresh()->cases_completed);
     }
 

@@ -150,16 +150,28 @@ class OperationalGapFixesTest extends TestCase
         $this->assertDatabaseHas('customer_refunds', ['invoice_id' => $invoice->id, 'reference' => 'MP-REF-1']);
     }
 
-    public function test_quality_release_requires_measured_results_and_evidence(): void
+    public function test_manager_can_approve_batch_without_recording_test_results(): void
     {
         $manager = $this->user('manager');
         $batch = $this->batch($manager);
         $batch->update(['status' => 'quality_hold']);
 
-        $this->actingAs($manager)->post(route('packaged.batches.release', $batch), ['quality_notes' => 'Looks good', 'rejected_cases' => 0])->assertSessionHasErrors(['quality_tested_on', 'quality_evidence_reference', 'quality_ph', 'quality_turbidity_ntu', 'microbiological_result']);
-        $this->actingAs($manager)->post(route('packaged.batches.release', $batch), ['quality_notes' => 'Checked against approved procedure', 'rejected_cases' => 0, 'quality_tested_on' => today()->toDateString(), 'quality_evidence_reference' => 'LAB-001', 'quality_ph' => '7.10', 'quality_turbidity_ntu' => '0.300', 'microbiological_result' => 'pass'])->assertRedirect();
+        $this->actingAs($manager)->get(route('packaged.batches.show', $batch))->assertOk()
+            ->assertSee('>Approve</button>', false)
+            ->assertSee('<h6>Quality result</h6>', false)
+            ->assertDontSee('Physical stock count')
+            ->assertDontSee('Actual manufacturing cost')
+            ->assertDontSee('Quality evidence reference')
+            ->assertDontSee('Shelf life:');
+        $this->actingAs($manager)->post(route('packaged.batches.release', $batch))->assertRedirect();
 
-        $this->assertDatabaseHas('production_batches', ['id' => $batch->id, 'quality_evidence_reference' => 'LAB-001', 'status' => 'released']);
+        $this->assertDatabaseHas('production_batches', [
+            'id' => $batch->id,
+            'status' => 'released',
+            'quality_evidence_reference' => null,
+            'quality_ph' => null,
+            'microbiological_result' => null,
+        ]);
     }
 
     public function test_actual_cost_closeout_preserves_the_original_estimate(): void

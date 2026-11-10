@@ -109,6 +109,12 @@ class PackagedWaterWorkflowTest extends TestCase
         $this->assertSame('destroyed_on_receipt', $return->disposition);
         $this->assertSame(0, $early->fresh()->cases_on_hand);
         $this->actingAs($actor)->get(route('packaged.reports.index'))->assertOk()->assertSee('1,100.00');
+        $this->actingAs($actor)->get(route('packaged.batches.show', $early))->assertOk()
+            ->assertDontSee('Quarantine batch')
+            ->assertSee('Recall batch');
+        $this->actingAs($actor)->post(route('packaged.batches.quarantine', $early), ['reason' => 'Suspected defect'])
+            ->assertSessionHasErrors('workflow');
+        $this->assertSame('released', $early->fresh()->status);
         $service->recallBatch($early, $actor->user_id, 'Failed post-sale quality review');
         $this->assertSame('recalled', $early->fresh()->status);
         $this->actingAs($actor)->get(route('packaged.batches.show', $early))->assertOk()->assertSee('Hotel');
