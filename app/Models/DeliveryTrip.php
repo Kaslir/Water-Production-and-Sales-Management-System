@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class DeliveryTrip extends Model
 {
-    protected $fillable = ['truck_identifier', 'driver_name', 'delivery_on', 'fuel_expense', 'other_expense', 'expense_reference', 'created_by', 'expense_recorded_by'];
+    protected $fillable = ['trip_reference', 'status', 'active_dispatch_key', 'truck_identifier', 'driver_name', 'delivery_on', 'fuel_expense', 'other_expense', 'expense_reference', 'created_by', 'expense_recorded_by'];
 
     protected function casts(): array
     {

@@ -1,0 +1,137 @@
+{
+  "experiment_id": "synthetic_20261105_05",
+  "dataset_sha256": "a0f72d8319b1214aecbee16e4fbe4eef41deee0359f3c7c215233c2043ef9f9b",
+  "selected_from_validation": {
+    "product_1_7d": "random_forest",
+    "product_1_30d": "historical_baseline",
+    "product_2_7d": "random_forest",
+    "product_2_30d": "random_forest",
+    "product_3_7d": "gradient_boosting",
+    "product_3_30d": "random_forest",
+    "product_4_7d": "random_forest",
+    "product_4_30d": "random_forest"
+  },
+  "overall_metrics": [
+    {
+      "product_id": "overall",
+      "horizon_days": 7,
+      "split": "validation",
+      "method": "historical_baseline",
+      "n": 100,
+      "mae_cases": 23.88,
+      "rmse_cases": 31.43,
+      "bias_cases": -0.36
+    },
+    {
+      "product_id": "overall",
+      "horizon_days": 7,
+      "split": "validation",
+      "method": "random_forest",
+      "n": 100,
+      "mae_cases": 18.56,
+      "rmse_cases": 24.589,
+      "bias_cases": -11.878
+    },
+    {
+      "product_id": "overall",
+      "horizon_days": 7,
+      "split": "validation",
+      "method": "gradient_boosting",
+      "n": 100,
+      "mae_cases": 19.968,
+      "rmse_cases": 27.552,
+      "bias_cases": -14.292
+    },
+    {
+      "product_id": "overall",
+      "horizon_days": 7,
+      "split": "test",
+      "method": "historical_baseline",
+      "n": 68,
+      "mae_cases": 19.926,
+      "rmse_cases": 23.997,
+      "bias_cases": -1.103
+    },
+    {
+      "product_id": "overall",
+      "horizon_days": 7,
+      "split": "test",
+      "method": "random_forest",
+      "n": 68,
+      "mae_cases": 15.465,
+      "rmse_cases": 19.513,
+      "bias_cases": -7.569
+    },
+    {
+      "product_id": "overall",
+      "horizon_days": 7,
+      "split": "test",
+      "method": "gradient_boosting",
+      "n": 68,
+      "mae_cases": 16.081,
+      "rmse_cases": 20.058,
+      "bias_cases": -7.639
+    },
+    {
+      "product_id": "overall",
+      "horizon_days": 30,
+      "split": "validation",
+      "method": "historical_baseline",
+      "n": 88,
+      "mae_cases": 42.375,
+      "rmse_cases": 52.923,
+      "bias_cases": -15.034
+    },
+    {
+      "product_id": "overall",
+      "horizon_days": 30,
+      "split": "validation",
+      "method": "random_forest",
+      "n": 88,
+      "mae_cases": 37.182,
+      "rmse_cases": 50.768,
+      "bias_cases": -26.579
+    },
+    {
+      "product_id": "overall",
+      "horizon_days": 30,
+      "split": "validation",
+      "method": "gradient_boosting",
+      "n": 88,
+      "mae_cases": 41.622,
+      "rmse_cases": 54.167,
+      "bias_cases": -30.34
+    },
+    {
+      "product_id": "overall",
+      "horizon_days": 30,
+      "split": "test",
+      "method": "historical_baseline",
+      "n": 56,
+      "mae_cases": 41.232,
+      "rmse_cases": 51.854,
+      "bias_cases": -32.839
+    },
+    {
+      "product_id": "overall",
+      "horizon_days": 30,
+      "split": "test",
+      "method": "random_forest",
+      "n": 56,
+      "mae_cases": 36.457,
+      "rmse_cases": 45.692,
+      "bias_cases": -33.227
+    },
+    {
+      "product_id": "overall",
+      "horizon_days": 30,
+      "split": "test",
+      "method": "gradient_boosting",
+      "n": 56,
+      "mae_cases": 39.422,
+      "rmse_cases": 48.76,
+      "bias_cases": -36.241
+    }
+  ],
+  "interpretation": "Validation chooses methods. Test scores are reported, not used to reselect. Synthetic performance does not prove real-company accuracy."
+}

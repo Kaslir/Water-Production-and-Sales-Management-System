@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Customer;
+use App\Models\DeliveryTrip;
 use App\Models\Dispatch;
 use App\Models\DispatchLine;
 use App\Models\Product;
@@ -70,13 +71,17 @@ class DistributionOrderFilterTest extends TestCase
         $this->dispatch('ORD-OLD-001', 30, 10, $user, $customer, $product, $batch);
         $this->dispatch('ORD-NEW-001', 5, 20, $user, $customer, $product, $batch);
         $this->dispatch('ORD-NEW-002', 1, 30, $user, $customer, $product, $batch);
+        $legacyTrip = DeliveryTrip::create(['truck_identifier' => 'OLD-TRUCK-1', 'driver_name' => 'Former driver', 'delivery_on' => today()->subDays(5), 'created_by' => $user->user_id]);
+        $legacyTrip->orders()->attach(SalesOrder::where('order_number', 'ORD-NEW-001')->value('id'));
+        $this->assertSame('OLD-TRUCK-1', $legacyTrip->fresh()->truck_identifier);
+        $this->actingAs($user)->get(route('packaged.trips.show', $legacyTrip))->assertOk()->assertSee('Historical trip')->assertDontSee('OLD-TRUCK-1')->assertDontSee('Former driver');
 
         $this->actingAs($user)->get(route('distribution.index', [
             'tab' => 'history',
             'order' => 'NEW',
             'from' => today()->subDays(6)->toDateString(),
             'to' => today()->subDays(2)->toDateString(),
-        ]))->assertOk()->assertSee('ORD-NEW-001')->assertDontSee('ORD-NEW-002')->assertDontSee('ORD-OLD-001')->assertSee('20 cases')->assertSee('1 records')->assertSee('60 cases')->assertSee('Not recorded (historical)');
+        ]))->assertOk()->assertSee('ORD-NEW-001')->assertDontSee('ORD-NEW-002')->assertDontSee('ORD-OLD-001')->assertSee('20 cases')->assertSee('1 records')->assertSee('60 cases');
 
         $this->actingAs($user)->get(route('distribution.index', [
             'tab' => 'history',

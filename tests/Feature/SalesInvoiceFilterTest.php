@@ -42,6 +42,7 @@ class SalesInvoiceFilterTest extends TestCase
         $this->invoice('INV-NEW-002', 1, 'part_paid', 3000, $user, $customer);
 
         $this->actingAs($user)->get(route('sales.index', [
+            'tab' => 'invoices',
             'invoice' => 'NEW',
             'from' => today()->subDays(6)->toDateString(),
             'to' => today()->subDays(2)->toDateString(),
@@ -49,6 +50,7 @@ class SalesInvoiceFilterTest extends TestCase
         ]))->assertOk()->assertSee('INV-NEW-001')->assertDontSee('INV-NEW-002')->assertDontSee('INV-OLD-001')->assertSee('KSh 2,000')->assertSee('1 records');
 
         $this->actingAs($user)->get(route('sales.index', [
+            'tab' => 'invoices',
             'to' => today()->subDays(20)->toDateString(),
         ]))->assertOk()->assertSee('INV-OLD-001')->assertDontSee('INV-NEW-001')->assertSee('KSh 1,000');
     }
@@ -58,6 +60,7 @@ class SalesInvoiceFilterTest extends TestCase
         $user = User::create(['name' => 'Sales Staff', 'email' => 'sales@example.test', 'password' => 'password-long-enough', 'role' => 'sales_staff', 'is_active' => true]);
 
         $this->actingAs($user)->get(route('sales.index', [
+            'tab' => 'invoices',
             'from' => today()->toDateString(),
             'to' => today()->subDay()->toDateString(),
             'status' => 'unknown',

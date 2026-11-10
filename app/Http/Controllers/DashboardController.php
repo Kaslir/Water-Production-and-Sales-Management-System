@@ -74,7 +74,7 @@ class DashboardController extends Controller
         if ($canSeePlanning) {
             $planning = ProductForecast::query()->with('product')->where('method', 'random_forest')->where('horizon_days', 7)
                 ->whereDate('origin_date', '<', $today->toDateString())->whereDate('origin_date', '>=', $today->subDays(7)->toDateString())
-                ->orderByDesc('origin_date')->get()
+                ->orderByDesc('origin_date')->orderByDesc('id')->get()
                 ->filter(fn (ProductForecast $forecast) => ($forecast->evaluation['selected'] ?? false)
                     && ($forecast->evaluation['mode'] ?? null) === 'current'
                     && $forecast->origin_date->addDays(7)->gte($today))

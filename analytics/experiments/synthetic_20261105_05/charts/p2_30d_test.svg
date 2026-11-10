@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 950 360">
+<rect width="100%" height="100%" fill="white"/>
+<text x="55" y="27" font-size="17">Product 2 · 30-day test · cases</text>
+<polyline fill="none" stroke="#222" stroke-width="2.5" points="55.0,113.6 119.6,100.2 184.2,95.2 248.8,81.9 313.5,70.0 378.1,76.9 442.7,97.1 507.3,97.9 571.9,106.7 636.5,97.1 701.2,98.7 765.8,100.2 830.4,104.8 895.0,112.8"/>
+<polyline fill="none" stroke="#888" stroke-width="1.7" points="55.0,133.5 119.6,133.8 184.2,128.5 248.8,127.3 313.5,120.8 378.1,124.7 442.7,108.2 507.3,94.5 571.9,81.5 636.5,86.4 701.2,103.6 765.8,104.8 830.4,114.3 895.0,101.3"/>
+<polyline fill="none" stroke="#ac2334" stroke-width="1.7" points="55.0,118.1 119.6,113.2 184.2,114.8 248.8,115.9 313.5,114.2 378.1,119.7 442.7,120.6 507.3,119.1 571.9,125.9 636.5,122.9 701.2,120.9 765.8,122.8 830.4,126.6 895.0,115.5"/>
+<polyline fill="none" stroke="#138e7c" stroke-width="1.7" points="55.0,116.3 119.6,119.6 184.2,118.4 248.8,118.6 313.5,114.7 378.1,120.3 442.7,112.9 507.3,115.1 571.9,125.9 636.5,118.9 701.2,128.7 765.8,118.5 830.4,129.1 895.0,120.6"/>
+<text x="60" y="347" fill="#222" font-size="13">actual</text>
+<text x="280" y="347" fill="#888" font-size="13">historical baseline</text>
+<text x="500" y="347" fill="#ac2334" font-size="13">random forest</text>
+<text x="720" y="347" fill="#138e7c" font-size="13">gradient boosting</text>
+</svg>

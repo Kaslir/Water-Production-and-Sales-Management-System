@@ -26,12 +26,14 @@ class PackagedReportController extends Controller
         $to = $dates['to'] ?? $today->toDateString();
         $invoices = Invoice::query()->with(['order.customer', 'order.items.product', 'order.dispatch.lines', 'activePayments', 'deliveryFeeCredit'])->whereDate('issued_on', '>=', $from)->whereDate('issued_on', '<=', $to)->orderByDesc('issued_on')->get();
         $returns = SalesReturn::query()->with(['invoice.order.customer', 'line'])->whereDate('returned_on', '>=', $from)->whereDate('returned_on', '<=', $to)->get();
-        $deliveryFeeCredits = DeliveryFeeCredit::query()->with('invoice.order.customer')->whereDate('created_at', '>=', $from)->whereDate('created_at', '<=', $to)->get();
+        $utcStart = CarbonImmutable::parse($from, config('app.business_timezone'))->startOfDay()->utc();
+        $utcEnd = CarbonImmutable::parse($to, config('app.business_timezone'))->endOfDay()->utc();
+        $deliveryFeeCredits = DeliveryFeeCredit::query()->with('invoice.order.customer')->whereBetween('created_at', [$utcStart, $utcEnd])->get();
         $expenses = OperatingExpense::query()->whereDate('expense_date', '>=', $from)->whereDate('expense_date', '<=', $to)->orderByDesc('expense_date')->get();
         $summary = $financial->forPeriod($from, $to, $invoices, $returns, $deliveryFeeCredits, $expenses);
         $actualCostRows = BatchActualCost::query()->with('batch.product')->whereHas('batch', fn ($query) => $query->whereDate('produced_on', '>=', $from)->whereDate('produced_on', '<=', $to))->get();
         $actualCostVariance = (float) $actualCostRows->sum(fn (BatchActualCost $cost) => (float) $cost->actual_total - (float) $cost->batch->total_cost);
-        $nearExpiry = ProductionBatch::query()->with('product')->where('cases_on_hand', '>', 0)->whereDate('expires_on', '<=', today()->addDays(30))->orderBy('expires_on')->get();
+        $nearExpiry = ProductionBatch::query()->with('product')->where('cases_on_hand', '>', 0)->whereDate('expires_on', '<=', CarbonImmutable::today(config('app.business_timezone'))->addDays(30))->orderBy('expires_on')->get();
         $productPerformance = [];
         $customerPerformance = [];
         foreach ($invoices as $invoice) {
@@ -72,7 +74,7 @@ class PackagedReportController extends Controller
 
     public function expense(Request $request, AuditTrail $auditTrail): RedirectResponse
     {
-        $data = $request->validate(['expense_date' => ['required', 'date', 'before_or_equal:today'], 'category' => ['required', 'string', 'max:80'], 'amount' => ['required', 'numeric', 'gt:0', 'decimal:0,2'], 'notes' => ['nullable', 'string', 'max:2000']]);
+        $data = $request->validate(['expense_date' => ['required', 'date', 'before_or_equal:'.CarbonImmutable::today(config('app.business_timezone'))->toDateString()], 'category' => ['required', 'string', 'max:80'], 'amount' => ['required', 'numeric', 'gt:0', 'decimal:0,2'], 'notes' => ['nullable', 'string', 'max:2000']]);
         $expense = OperatingExpense::create($data + ['recorded_by' => $request->user()->user_id]);
         $auditTrail->record('expense.recorded', $expense, $request->user()->user_id, [], ['amount' => $expense->amount, 'category' => $expense->category]);
 

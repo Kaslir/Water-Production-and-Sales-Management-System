@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
@@ -22,8 +23,10 @@ class ReportController extends Controller
             DB::table('production_batches')->max('produced_on'),
             DB::table('dispatches')->max('dispatched_on'),
         ])->filter()->max();
-        $to = $filters['to'] ?? ($lastRecord ?: today()->toDateString());
+        $to = $filters['to'] ?? ($lastRecord ?: CarbonImmutable::today(config('app.business_timezone'))->toDateString());
         $from = $filters['from'] ?? CarbonImmutable::parse($to)->subDays(29)->toDateString();
+        $utcStart = CarbonImmutable::parse($from, config('app.business_timezone'))->startOfDay()->utc();
+        $utcEnd = CarbonImmutable::parse($to, config('app.business_timezone'))->endOfDay()->utc();
 
         [$query, $columns, $summaryFields] = match ($type) {
             'production' => [
@@ -36,7 +39,7 @@ class ReportController extends Controller
             'inventory' => [
                 DB::table('stock_movements')->join('production_batches', 'stock_movements.production_batch_id', '=', 'production_batches.id')
                     ->join('products', 'production_batches.product_id', '=', 'products.id')
-                    ->whereDate('stock_movements.created_at', '>=', $from)->whereDate('stock_movements.created_at', '<=', $to)
+                    ->whereBetween('stock_movements.created_at', [$utcStart, $utcEnd])
                     ->select('stock_movements.id', 'production_batches.batch_code', 'products.name as product', 'stock_movements.created_at', 'stock_movements.reason', 'stock_movements.signed_cases'),
                 ['created_at' => 'Recorded', 'batch_code' => 'Batch', 'product' => 'Product', 'reason' => 'Reason', 'signed_cases' => 'Cases (+/-)'],
                 ['signed_cases' => ['Net stock movement', 'cases']],
@@ -76,11 +79,7 @@ class ReportController extends Controller
                 ['cases_on_hand' => ['Cases still on hand', 'cases']],
             ],
             'disposals' => [
-                DB::table('batch_disposals')->join('production_batches', 'batch_disposals.production_batch_id', '=', 'production_batches.id')
-                    ->join('products', 'production_batches.product_id', '=', 'products.id')
-                    ->whereBetween('batch_disposals.disposed_on', [$from, $to])
-                    ->select('batch_disposals.id', 'production_batches.batch_code', 'products.name as product', 'batch_disposals.disposed_on', 'batch_disposals.reason', 'batch_disposals.cases')
-                    ->selectRaw('batch_disposals.cases * production_batches.cost_per_case as loss'),
+                $this->disposalRows($from, $to),
                 ['disposed_on' => 'Disposed', 'batch_code' => 'Batch', 'product' => 'Product', 'reason' => 'Reason', 'cases' => 'Cases', 'loss' => 'Cost loss (KSh)'],
                 ['cases' => ['Cases disposed', 'cases'], 'loss' => ['Disposal cost loss', 'KSh']],
             ],
@@ -104,11 +103,31 @@ class ReportController extends Controller
             'inventory' => 'stock_movements.id',
             'distribution' => 'dispatches.id',
             'customers' => 'customers.customer_id',
-            'disposals' => 'batch_disposals.id',
+            'disposals' => 'disposal_rows.disposed_on',
             default => 'invoices.id',
         };
         $rows = $query->orderByDesc($orderColumn)->paginate(30)->withQueryString();
 
         return view('reports.index', compact('type', 'from', 'to', 'rows', 'columns', 'totals'));
+    }
+
+    private function disposalRows(string $from, string $to): Builder
+    {
+        $batchDisposals = DB::table('batch_disposals')
+            ->join('production_batches', 'batch_disposals.production_batch_id', '=', 'production_batches.id')
+            ->join('products', 'production_batches.product_id', '=', 'products.id')
+            ->whereBetween('batch_disposals.disposed_on', [$from, $to])
+            ->select('batch_disposals.id', 'production_batches.batch_code', 'products.name as product', 'batch_disposals.disposed_on', 'batch_disposals.reason', 'batch_disposals.cases')
+            ->selectRaw('batch_disposals.cases * production_batches.cost_per_case as loss');
+        $failedDeliveryDisposals = DB::table('failed_delivery_lines')
+            ->join('dispatch_lines', 'failed_delivery_lines.dispatch_line_id', '=', 'dispatch_lines.id')
+            ->join('production_batches', 'dispatch_lines.production_batch_id', '=', 'production_batches.id')
+            ->join('products', 'production_batches.product_id', '=', 'products.id')
+            ->where('failed_delivery_lines.status', 'disposed')
+            ->whereBetween('failed_delivery_lines.inspected_on', [$from, $to])
+            ->select('failed_delivery_lines.id', 'production_batches.batch_code', 'products.name as product', 'failed_delivery_lines.inspected_on as disposed_on', 'failed_delivery_lines.quality_notes as reason', 'failed_delivery_lines.cases')
+            ->selectRaw('failed_delivery_lines.cases * dispatch_lines.cost_per_case as loss');
+
+        return DB::query()->fromSub($batchDisposals->unionAll($failedDeliveryDisposals), 'disposal_rows')->select('disposal_rows.*');
     }
 }

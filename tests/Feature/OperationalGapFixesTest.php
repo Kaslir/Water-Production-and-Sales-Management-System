@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Customer;
 use App\Models\DeliveryArea;
+use App\Models\DeliveryTrip;
 use App\Models\Product;
 use App\Models\ProductForecast;
 use App\Models\ProductionBatch;
@@ -133,6 +134,8 @@ class OperationalGapFixesTest extends TestCase
         $service = app(PackagedWaterService::class);
         $order = $service->createOrder(['customer_id' => $customer->customer_id, 'delivery_address' => 'Nairobi', 'delivery_cost' => 0, 'items' => [['product_id' => $batch->product_id, 'cases_ordered' => 2, 'price_per_case' => 100]]], $manager->user_id);
         $service->confirmOrder($order, $manager->user_id);
+        $trip = DeliveryTrip::create(['delivery_on' => today(), 'status' => 'dispatched', 'active_dispatch_key' => 1, 'created_by' => $manager->user_id]);
+        $trip->orders()->attach($order->id);
         $dispatch = $service->dispatchOrder($order, $manager->user_id, 'TRIP-REFUND');
         $service->deliverOrder($order, $manager->user_id, ['received_by' => 'Hotel buyer', 'receipt_reference' => 'SIGNED-1']);
         $invoice = $service->invoiceOrder($order, $manager->user_id);

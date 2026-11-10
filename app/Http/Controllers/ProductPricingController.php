@@ -6,6 +6,7 @@ use App\Models\AuditLog;
 use App\Models\Product;
 use App\Models\ProductManufacturingPolicy;
 use App\Services\AuditTrail;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -19,7 +20,7 @@ class ProductPricingController extends Controller
         $productIds = $products->pluck('id');
         $approvedCosts = ProductManufacturingPolicy::query()
             ->whereIn('product_id', $productIds)
-            ->whereDate('effective_from', '<=', today())
+            ->whereDate('effective_from', '<=', CarbonImmutable::today(config('app.business_timezone')))
             ->orderByDesc('effective_from')
             ->orderByDesc('id')
             ->get()

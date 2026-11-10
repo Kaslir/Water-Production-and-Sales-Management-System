@@ -71,7 +71,6 @@ class UserManagementController extends Controller
             $data['is_active'] = false;
         }
         abort_if($user->is($request->user()) && ! $data['is_active'], 422, 'You cannot deactivate your own account.');
-        abort_if($user->role === 'administrator' && $user->is_active && ($data['role'] !== 'administrator' || ! $data['is_active']) && User::where('role', 'administrator')->where('is_active', true)->count() <= 1, 422, 'At least one active administrator account must remain.');
         if (blank($data['password'] ?? null)) {
             unset($data['password']);
         }
@@ -82,17 +81,23 @@ class UserManagementController extends Controller
         }
         $accessChanged = $user->role !== $data['role'] || (bool) $user->is_active !== (bool) $data['is_active'];
         $passwordChanged = array_key_exists('password', $data);
-        if ($emailChanged) {
-            $user->email_verified_at = null;
-        }
-        $user->update($data);
+        DB::transaction(function () use (&$user, $data, $emailChanged, $before, $auditTrail, $request): void {
+            // Lock every administrator in a stable order so simultaneous role changes cannot remove the last one.
+            User::query()->where('role', 'administrator')->orderBy('user_id')->lockForUpdate()->get();
+            $user = User::query()->lockForUpdate()->findOrFail($user->user_id);
+            abort_if($user->role === 'administrator' && $user->is_active && ($data['role'] !== 'administrator' || ! $data['is_active']) && User::where('role', 'administrator')->where('is_active', true)->count() <= 1, 422, 'At least one active administrator account must remain.');
+            if ($emailChanged) {
+                $user->email_verified_at = null;
+            }
+            $user->update($data);
+            $auditTrail->record('user.updated', $user, $request->user()->user_id, $before, $user->only(['name', 'email', 'role', 'is_active']));
+        });
         if ($pending && $emailChanged) {
             $sent = $invitations->send($user, $request->user(), $auditTrail);
         }
         if ($emailChanged || $accessChanged || $passwordChanged) {
             DB::table('sessions')->where('user_id', $user->user_id)->delete();
         }
-        $auditTrail->record('user.updated', $user, $request->user()->user_id, $before, $user->only(['name', 'email', 'role', 'is_active']));
 
         return redirect()->route('users.index')->with($pending && $emailChanged && ! $sent ? 'mail_error' : 'status', $pending && $emailChanged ? ($sent ? 'Employee updated and a new invitation sent.' : 'Employee updated, but email delivery failed. Resend the invitation.') : 'Employee account updated successfully.');
     }
@@ -101,9 +106,16 @@ class UserManagementController extends Controller
     {
         abort_if(! $user->is_active && ! $user->activated_at && $user->employeeInvitations()->exists(), 422, 'Revoke the pending invitation instead.');
         abort_if($user->is($request->user()), 422, 'You cannot delete your own account.');
-        abort_if($user->role === 'administrator' && User::where('role', 'administrator')->where('is_active', true)->count() <= 1, 422, 'At least one active administrator account must remain.');
-        $user->update(['is_active' => false]);
-        $auditTrail->record('user.deactivated', $user, $request->user()->user_id, ['is_active' => true], ['is_active' => false]);
+        DB::transaction(function () use (&$user, $auditTrail, $request): void {
+            User::query()->where('role', 'administrator')->orderBy('user_id')->lockForUpdate()->get();
+            $user = User::query()->lockForUpdate()->findOrFail($user->user_id);
+            if (! $user->is_active) {
+                return;
+            }
+            abort_if($user->role === 'administrator' && $user->is_active && User::where('role', 'administrator')->where('is_active', true)->count() <= 1, 422, 'At least one active administrator account must remain.');
+            $user->update(['is_active' => false]);
+            $auditTrail->record('user.deactivated', $user, $request->user()->user_id, ['is_active' => true], ['is_active' => false]);
+        });
 
         return redirect()->route('users.index')->with('status', 'User account deactivated. Historical records remain traceable.');
     }

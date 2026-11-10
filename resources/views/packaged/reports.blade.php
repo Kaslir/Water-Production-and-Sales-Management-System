@@ -68,7 +68,7 @@
             <div class="d-flex justify-content-between gap-3 border-bottom py-2"><span>Customer return credits</span><strong>KSh {{ number_format($credits, 2) }}</strong></div>
             <div class="d-flex justify-content-between gap-3 border-bottom py-2"><span>Approved delivery-fee credits</span><strong>KSh {{ number_format($deliveryFeeCreditsTotal, 2) }}</strong></div>
             <div class="d-flex justify-content-between gap-3 border-bottom py-2"><span>Cost of goods sold</span><strong>KSh {{ number_format($costOfGoodsSold, 2) }}</strong></div>
-            <div class="d-flex justify-content-between gap-3 border-bottom py-2"><span>Shared truck trip expenses</span><strong>KSh {{ number_format($tripExpenses, 2) }}</strong></div>
+            <div class="d-flex justify-content-between gap-3 border-bottom py-2"><span>Delivery trip expenses</span><strong>KSh {{ number_format($tripExpenses, 2) }}</strong></div>
             @if($deliveryCost > 0)<div class="d-flex justify-content-between gap-3 border-bottom py-2"><span>Historical order delivery expenses</span><strong>KSh {{ number_format($deliveryCost, 2) }}</strong></div>@endif
         </div>
         <div class="col-lg-6 ps-lg-3">
@@ -80,7 +80,7 @@
             <div class="d-flex justify-content-between gap-3 border-bottom py-2"><span>Actual cost variance for batches with a closeout</span><strong>KSh {{ number_format($actualCostVariance, 2) }}</strong></div>
         </div>
     </div>
-    <p class="small text-muted mt-2 mb-0">Delivery fees are revenue; each truck trip's fuel and other expenses are counted once. Historical order delivery expenses are separate. Actual cost variance is shown for review and is not included again in estimated profit. Refunds change cash and receivables; approved credits already reduce revenue.</p>
+    <p class="small text-muted mt-2 mb-0">Delivery fees are revenue; each trip's fuel and other expenses are counted once. Historical order delivery expenses are separate. Actual cost variance is shown for review and is not included again in estimated profit. Refunds change cash and receivables; approved credits already reduce revenue.</p>
     @if(auth()->user()->hasRole('administrator','manager') && $expenses->isNotEmpty())
     <details class="mt-3"><summary>Recorded operating expenses and corrections</summary>
         @foreach($expenses as $expense)<div class="border-top py-2">{{ $expense->expense_date->format('d M Y') }} · {{ $expense->category }} · KSh {{ number_format($expense->amount, 2) }} @if($expense->reversed_at)<span class="badge bg-secondary">Reversed</span> {{ $expense->reversal_reason }}@else<form class="d-flex gap-2 mt-2" method="post" action="{{ route('packaged.expenses.reverse', $expense) }}">@csrf<input class="form-control" name="reason" placeholder="Correction reason" required><button class="btn btn-outline-danger" onclick="return confirm('Reverse this expense?')">Reverse</button></form>@endif</div>@endforeach
@@ -148,7 +148,7 @@
         <div class="tab-pane fade" id="products-report" role="tabpanel" aria-labelledby="products-tab" tabindex="0">
             <div class="table-responsive">
                 <table class="table align-middle mb-0">
-                    <thead><tr><th>Product</th><th>Cases</th><th>Sales (KSh)</th><th>Gross profit (KSh)</th></tr></thead>
+                    <thead><tr><th>Product</th><th>Net invoiced cases after credited returns</th><th>Net bottled-water revenue (KSh)</th><th>Gross profit estimate (KSh)</th></tr></thead>
                     <tbody>
                         @forelse($productPerformance as $row)
                             <tr><td>{{ $row['name'] }}</td><td>{{ $row['cases'] }}</td><td>{{ number_format($row['revenue'], 2) }}</td><td>{{ number_format($row['revenue'] - $row['cost'], 2) }}</td></tr>

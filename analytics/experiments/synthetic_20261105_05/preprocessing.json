@@ -1,0 +1,31 @@
+{
+  "numeric_imputation": "none; complete daily calendar required",
+  "scaling": "none; tree regressors and the baseline use raw case counts",
+  "closed_sunday": "known zero cases, never an unknown observation",
+  "feature_names": {
+    "7": [
+      "last_day",
+      "same_day_last_week",
+      "same_day_two_weeks_ago",
+      "same_day_four_weeks_ago",
+      "last_week_total",
+      "prior_week_total",
+      "last_28_day_mean",
+      "last_28_day_std",
+      "weekly_change",
+      "annual_sin",
+      "annual_cos"
+    ],
+    "30": [
+      "last_day",
+      "same_day_last_week",
+      "same_day_two_weeks_ago",
+      "same_day_four_weeks_ago",
+      "last_7_day_mean",
+      "last_28_day_mean",
+      "last_28_day_std",
+      "origin_weekday_offset"
+    ]
+  },
+  "fitted_preprocessing_artifact": "none required"
+}

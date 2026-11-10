@@ -100,16 +100,23 @@ Route::middleware(['auth', 'active', DailyAlertScan::class])->group(function () 
     Route::middleware('role:administrator,manager,distribution_staff')->group(function () {
         Route::get('/packaged/trips/create', [DeliveryTripController::class, 'create'])->name('packaged.trips.create');
         Route::post('/packaged/trips', [DeliveryTripController::class, 'store'])->name('packaged.trips.store');
+        Route::get('/packaged/trips/{trip}/edit', [DeliveryTripController::class, 'edit'])->name('packaged.trips.edit');
+        Route::patch('/packaged/trips/{trip}', [DeliveryTripController::class, 'update'])->name('packaged.trips.update');
+        Route::post('/packaged/trips/{trip}/cancel', [DeliveryTripController::class, 'cancel'])->name('packaged.trips.cancel');
+        Route::post('/packaged/trips/{trip}/dispatch', [DeliveryTripController::class, 'dispatch'])->name('packaged.trips.dispatch');
         Route::get('/packaged/trips/{trip}', [DeliveryTripController::class, 'show'])->name('packaged.trips.show');
         Route::post('/packaged/trips/{trip}/expenses', [DeliveryTripController::class, 'expense'])->name('packaged.trips.expense');
         Route::post('/packaged/orders/{order}/dispatch', [SalesOrderController::class, 'dispatch'])->name('packaged.orders.dispatch');
         Route::post('/packaged/orders/{order}/deliver', [SalesOrderController::class, 'deliver'])->name('packaged.orders.deliver');
+        Route::post('/packaged/orders/{order}/delivery-failed', [SalesOrderController::class, 'deliveryFailed'])->name('packaged.orders.delivery-failed');
+        Route::post('/packaged/orders/{order}/warehouse-return', [SalesOrderController::class, 'warehouseReturn'])->name('packaged.orders.warehouse-return');
     });
     Route::middleware('role:administrator,manager,auditor')->group(function () {
         Route::get('/packaged/reports', [PackagedReportController::class, 'index'])->name('packaged.reports.index');
         Route::get('/packaged/forecasts', [ProductForecastController::class, 'index'])->name('packaged.forecasts.index');
     });
     Route::middleware('role:administrator,manager')->group(function () {
+        Route::post('/packaged/dispatch-lines/{line}/return-inspection', [SalesOrderController::class, 'inspectFailedDelivery'])->name('packaged.dispatch-lines.return-inspection');
         Route::post('/packaged/invoices/{invoice}/refunds', [SalesOrderController::class, 'refund'])->name('packaged.invoices.refund');
         Route::post('/packaged/invoices/{invoice}/delivery-fee-credit', [SalesOrderController::class, 'creditDeliveryFee'])->name('packaged.invoices.delivery-fee-credit');
         Route::post('/packaged/payments/{payment}/reverse', [SalesOrderController::class, 'reversePayment'])->name('packaged.payments.reverse');

@@ -12,6 +12,7 @@ use App\Models\Product;
 use App\Models\ProductionBatch;
 use App\Models\SalesOrder;
 use App\Models\StockMovement;
+use App\Services\PackagedFinancialSummary;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -22,7 +23,7 @@ use Illuminate\View\View;
 
 class OperationsController extends Controller
 {
-    public function index(Request $request, string $type): View
+    public function index(Request $request, string $type, PackagedFinancialSummary $financial): View
     {
         $this->authorizeType($request, $type);
         if ($type === 'customers') {
@@ -48,6 +49,10 @@ class OperationsController extends Controller
 
         if ($type === 'distribution') {
             return $this->distributionIndex($request);
+        }
+
+        if ($type === 'sales') {
+            return $this->salesIndex($request, $financial);
         }
 
         return $this->packagedIndex($request, $type);
@@ -176,8 +181,8 @@ class OperationsController extends Controller
                 ->when($batchCode !== '', fn ($query) => $query->whereHas('batch', fn ($batchQuery) => $batchQuery->where('batch_code', 'like', '%'.$batchCode.'%')))
                 ->when(! empty($filters['product_id']), fn ($query) => $query->whereHas('batch', fn ($batchQuery) => $batchQuery->where('product_id', $filters['product_id'])))
                 ->when(! empty($filters['movement_type']), fn ($query) => $query->where('reason', $filters['movement_type']))
-                ->when(! empty($filters['from']), fn ($query) => $query->whereDate('created_at', '>=', $filters['from']))
-                ->when(! empty($filters['to']), fn ($query) => $query->whereDate('created_at', '<=', $filters['to']))
+                ->when(! empty($filters['from']), fn ($query) => $query->where('created_at', '>=', CarbonImmutable::parse($filters['from'], config('app.business_timezone'))->startOfDay()->utc()))
+                ->when(! empty($filters['to']), fn ($query) => $query->where('created_at', '<=', CarbonImmutable::parse($filters['to'], config('app.business_timezone'))->endOfDay()->utc()))
                 ->orderByDesc('id')->paginate(20)->withQueryString();
         }
 
@@ -198,7 +203,7 @@ class OperationsController extends Controller
             'order' => ['nullable', 'string', 'max:80'],
             'customer' => ['nullable', 'string', 'max:255'],
             'delivery_zone_id' => ['nullable', 'integer', Rule::exists('delivery_zones', 'id')],
-            'status' => ['nullable', 'in:dispatched,delivered'],
+            'status' => ['nullable', 'in:dispatched,delivered,delivery_failed'],
             'from' => ['nullable', 'date_format:Y-m-d'],
             'to' => ['nullable', 'date_format:Y-m-d', ...($request->filled('from') ? ['after_or_equal:from'] : [])],
         ]);
@@ -240,6 +245,54 @@ class OperationsController extends Controller
         };
 
         return view('operations.distribution', compact('filters', 'tab', 'rows', 'summary', 'zones'));
+    }
+
+    private function salesIndex(Request $request, PackagedFinancialSummary $financial): View
+    {
+        $tab = $request->query('tab', 'orders');
+        $filters = $request->validate([
+            'tab' => ['nullable', 'in:orders,invoices'],
+            ...($tab === 'invoices' ? [
+                'invoice' => ['nullable', 'string', 'max:80'],
+                'status' => ['nullable', 'in:unpaid,part_paid,paid,credited,settled,credit_due'],
+            ] : [
+                'order' => ['nullable', 'string', 'max:80'],
+                'customer' => ['nullable', 'string', 'max:255'],
+                'order_status' => ['nullable', 'in:draft,confirmed,dispatched,delivery_failed,delivered,invoiced,paid,cancelled'],
+            ]),
+            'from' => ['nullable', 'date_format:Y-m-d'],
+            'to' => ['nullable', 'date_format:Y-m-d', ...($request->filled('from') ? ['after_or_equal:from'] : [])],
+        ]);
+        $tab = $filters['tab'] ?? 'orders';
+        if ($tab === 'orders') {
+            $rows = SalesOrder::query()->with('customer')
+                ->when(filled($filters['order'] ?? null), fn ($query) => $query->where('order_number', 'like', '%'.trim($filters['order']).'%'))
+                ->when(filled($filters['customer'] ?? null), fn ($query) => $query->whereHas('customer', fn ($customer) => $customer->where('name', 'like', '%'.trim($filters['customer']).'%')))
+                ->when(! empty($filters['order_status']), fn ($query) => $query->where('status', $filters['order_status']))
+                ->when(! empty($filters['from']), fn ($query) => $query->whereDate('ordered_on', '>=', $filters['from']))
+                ->when(! empty($filters['to']), fn ($query) => $query->whereDate('ordered_on', '<=', $filters['to']))
+                ->orderByDesc('ordered_on')->orderByDesc('id')->paginate(20)->withQueryString();
+        } else {
+            $rows = Invoice::query()->with(['order.customer', 'order.items', 'activePayments'])
+                ->when(filled($filters['invoice'] ?? null), fn ($query) => $query->where('invoice_number', 'like', '%'.trim($filters['invoice']).'%'))
+                ->when(! empty($filters['status']), fn ($query) => $query->where('status', $filters['status']))
+                ->when(! empty($filters['from']), fn ($query) => $query->whereDate('issued_on', '>=', $filters['from']))
+                ->when(! empty($filters['to']), fn ($query) => $query->whereDate('issued_on', '<=', $filters['to']))
+                ->orderByDesc('issued_on')->orderByDesc('id')->paginate(20)->withQueryString();
+        }
+
+        $financialTotals = $financial->forPeriod('1900-01-01', '9999-12-31');
+        $summary = [
+            'gross_invoiced' => (float) Invoice::query()->sum('amount'),
+            'credits' => $financialTotals['credits'] + $financialTotals['deliveryFeeCreditsTotal'],
+            'net_invoiced' => $financialTotals['revenue'],
+            'payments' => $financialTotals['cashCollected'],
+            'refunds' => $financialTotals['refundsPaid'],
+            'outstanding' => $financialTotals['outstanding'],
+            'awaiting_confirmation' => SalesOrder::query()->where('status', 'draft')->count(),
+        ];
+
+        return view('operations.sales', compact('tab', 'filters', 'rows', 'summary'));
     }
 
     private function packagedIndex(Request $request, string $type): View

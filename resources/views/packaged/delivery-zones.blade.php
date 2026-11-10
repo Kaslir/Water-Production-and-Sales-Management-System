@@ -1,7 +1,7 @@
 @extends('layouts.app')
 @section('page-title', 'Delivery zones')
 @section('content')
-<div class="panel mb-3"><h1 class="h5">Nairobi County delivery zones</h1><p class="small text-muted mb-0">Fixed fees cover one customer order on a shared truck route. Industrial Area is the demonstration distribution centre. The starting fees are illustrative.</p></div>
+<div class="panel mb-3"><h1 class="h5">Nairobi County delivery zones</h1><p class="small text-muted mb-0">Fixed fees cover one customer order on a delivery trip. Industrial Area is the demonstration distribution centre. The starting fees are illustrative.</p></div>
 <div class="panel table-responsive mb-3">
     <table class="table align-middle"><thead><tr><th>Zone</th><th>Areas</th><th>Current fee</th><th>Status</th><th>Change fee or status</th></tr></thead><tbody>
     @foreach($zones as $zone)<tr><td><strong>Zone {{ $zone->code }}</strong></td><td>{{ $zone->areas->pluck('name')->join(', ') }}</td><td>KSh {{ number_format($zone->fixed_fee, 2) }}</td><td><span class="badge {{ $zone->is_active ? 'bg-success' : 'bg-secondary' }}">{{ $zone->is_active ? 'Active' : 'Inactive' }}</span></td><td>

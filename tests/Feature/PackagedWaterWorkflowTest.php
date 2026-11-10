@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Customer;
+use App\Models\DeliveryTrip;
 use App\Models\Product;
 use App\Models\ProductForecast;
 use App\Models\ProductionBatch;
@@ -67,6 +68,8 @@ class PackagedWaterWorkflowTest extends TestCase
         $this->assertSame(10, $early->fresh()->cases_reserved);
         $this->assertSame(2, $late->fresh()->cases_reserved);
         $this->assertSame(10, $early->fresh()->cases_on_hand);
+        $trip = DeliveryTrip::create(['delivery_on' => today(), 'status' => 'dispatched', 'active_dispatch_key' => 1, 'created_by' => $actor->user_id]);
+        $trip->orders()->attach($order->id);
         $service->dispatchOrder($order, $actor->user_id, 'TRIP-1');
         $this->assertSame(0, $early->fresh()->cases_on_hand);
         $this->assertSame(8, $late->fresh()->cases_on_hand);

@@ -10,6 +10,7 @@ use App\Models\OperatingExpense;
 use App\Models\Payment;
 use App\Models\SalesOrder;
 use App\Models\SalesReturn;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -17,9 +18,11 @@ class PackagedFinancialSummary
 {
     public function forPeriod(string $from, string $to, ?Collection $invoices = null, ?Collection $returns = null, ?Collection $deliveryFeeCredits = null, ?Collection $expenses = null): array
     {
+        $utcStart = CarbonImmutable::parse($from, config('app.business_timezone'))->startOfDay()->utc();
+        $utcEnd = CarbonImmutable::parse($to, config('app.business_timezone'))->endOfDay()->utc();
         $invoices ??= Invoice::query()->with('order')->whereDate('issued_on', '>=', $from)->whereDate('issued_on', '<=', $to)->get();
         $returns ??= SalesReturn::query()->whereDate('returned_on', '>=', $from)->whereDate('returned_on', '<=', $to)->get();
-        $deliveryFeeCredits ??= DeliveryFeeCredit::query()->whereDate('created_at', '>=', $from)->whereDate('created_at', '<=', $to)->get();
+        $deliveryFeeCredits ??= DeliveryFeeCredit::query()->whereBetween('created_at', [$utcStart, $utcEnd])->get();
         $expenses ??= OperatingExpense::query()->whereDate('expense_date', '>=', $from)->whereDate('expense_date', '<=', $to)->get();
 
         $credits = (float) $returns->sum('credit_amount');
@@ -40,6 +43,11 @@ class PackagedFinancialSummary
             ->join('production_batches', 'batch_disposals.production_batch_id', '=', 'production_batches.id')
             ->whereDate('batch_disposals.disposed_on', '>=', $from)->whereDate('batch_disposals.disposed_on', '<=', $to)
             ->selectRaw('COALESCE(SUM(batch_disposals.cases * production_batches.cost_per_case), 0) total')->value('total');
+        $disposalLoss += (float) DB::table('failed_delivery_lines')
+            ->join('dispatch_lines', 'failed_delivery_lines.dispatch_line_id', '=', 'dispatch_lines.id')
+            ->where('failed_delivery_lines.status', 'disposed')
+            ->whereDate('failed_delivery_lines.inspected_on', '>=', $from)->whereDate('failed_delivery_lines.inspected_on', '<=', $to)
+            ->selectRaw('COALESCE(SUM(failed_delivery_lines.cases * dispatch_lines.cost_per_case), 0) total')->value('total');
         $cashCollected = (float) Payment::query()->whereNull('reversed_at')->whereDate('paid_on', '>=', $from)->whereDate('paid_on', '<=', $to)->sum('amount');
         $refundsPaid = (float) CustomerRefund::query()->whereDate('refunded_on', '>=', $from)->whereDate('refunded_on', '<=', $to)->sum('amount');
         $returnTotals = DB::table('sales_returns')->select('invoice_id')->selectRaw('SUM(credit_amount) as total')->groupBy('invoice_id');
@@ -55,7 +63,7 @@ class PackagedFinancialSummary
         $customerCreditDue = (float) $balances->sum(fn ($invoice) => max(0, (float) $invoice->paid - ((float) $invoice->amount - (float) $invoice->return_credit - (float) $invoice->delivery_credit) - (float) $invoice->refunded));
         $stockCountLoss = (float) DB::table('stock_movements')->join('production_batches', 'stock_movements.production_batch_id', '=', 'production_batches.id')
             ->where('stock_movements.reason', 'stocktake_adjustment')->where('stock_movements.signed_cases', '<', 0)
-            ->whereDate('stock_movements.created_at', '>=', $from)->whereDate('stock_movements.created_at', '<=', $to)
+            ->whereBetween('stock_movements.created_at', [$utcStart, $utcEnd])
             ->selectRaw('COALESCE(SUM(-stock_movements.signed_cases * production_batches.cost_per_case), 0) total')->value('total');
 
         $grossProfit = $revenue - $costOfGoodsSold;

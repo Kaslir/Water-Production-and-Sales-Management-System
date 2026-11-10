@@ -1,0 +1,13 @@
+policy_id,product_id,effective_from,shelf_life_days,shelf_life_evidence,water_treatment_per_case,bottle_per_case,inbound_transport_per_case,cap_label_per_case,labour_per_case,electricity_per_case,other_production_per_case
+1,1,2024-01-01,180,Synthetic scenario assumption only; not a certified shelf life,32.40,194.40,20.25,48.60,56.70,32.40,20.25
+2,1,2025-07-01,180,Synthetic scenario assumption only; not a certified shelf life,33.86,203.15,21.16,50.79,59.25,33.86,21.16
+3,1,2026-07-01,180,Synthetic scenario assumption only; not a certified shelf life,35.32,211.90,22.07,52.97,61.80,35.32,22.07
+4,2,2024-01-01,180,Synthetic scenario assumption only; not a certified shelf life,28.00,168.00,17.50,42.00,49.00,28.00,17.50
+5,2,2025-07-01,180,Synthetic scenario assumption only; not a certified shelf life,29.26,175.56,18.29,43.89,51.21,29.26,18.28
+6,2,2026-07-01,180,Synthetic scenario assumption only; not a certified shelf life,30.52,183.12,19.08,45.78,53.41,30.52,19.07
+7,3,2024-01-01,180,Synthetic scenario assumption only; not a certified shelf life,37.60,225.60,23.50,56.40,65.80,37.60,23.50
+8,3,2025-07-01,180,Synthetic scenario assumption only; not a certified shelf life,39.29,235.75,24.56,58.94,68.76,39.29,24.56
+9,3,2026-07-01,180,Synthetic scenario assumption only; not a certified shelf life,40.98,245.90,25.62,61.48,71.72,40.98,25.62
+10,4,2024-01-01,180,Synthetic scenario assumption only; not a certified shelf life,14.80,88.80,9.25,22.20,25.90,14.80,9.25
+11,4,2025-07-01,180,Synthetic scenario assumption only; not a certified shelf life,15.47,92.80,9.67,23.20,27.07,15.47,9.65
+12,4,2026-07-01,180,Synthetic scenario assumption only; not a certified shelf life,16.13,96.79,10.08,24.20,28.23,16.13,10.09

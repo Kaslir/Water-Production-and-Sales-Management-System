@@ -1,58 +1,101 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# AquaTrack
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+AquaTrack is an internal bottled-water production and sales management system. It records production batches, quality decisions, saleable stock, customer orders, deliveries, invoices and payments. It also uses historical customer orders to estimate short-term demand and help managers decide how many cases to produce.
 
-## About Laravel
+The project was developed as a university capstone. Its demonstration records are **synthetic**; they do not represent transactions from a real company.
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## What the system does
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+- Manages four products: 500 mL, 1 L, 5 L and 20 L bottled water, with sales and stock measured in cases.
+- Records production batches with an approved manufacturing policy, production date, calculated expiry date and estimated costs.
+- Holds new batches for quality review. Only released, unexpired stock can be reserved or dispatched.
+- Records customer orders, reserves eligible batches, and allocates stock by earliest expiry first.
+- Tracks dispatch and delivery through the single-truck Nairobi distribution workflow, including delivery zones and failed attempts.
+- Issues invoices, records payments and credits, and shows management estimates of revenue and profit.
+- Provides stock, expiry, sales, production and financial reports, plus notifications and audit records.
+- Forecasts demand by product and supports a manager's production-planning decision.
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+Users have role-based access as administrators, managers, production staff, inventory staff, distribution staff or sales staff. Employee access is approved and managed by an administrator. Sign-in uses an emailed security code; password recovery also uses email verification.
 
-## Learning Laravel
+## Main business workflow
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+1. A manager maintains product prices and approved manufacturing settings.
+2. Production staff record a batch. The batch remains on quality hold until an authorised quality decision releases it.
+3. Sales staff record a customer order. Confirmation reserves suitable stock; saving a draft does not remove stock.
+4. Distribution staff dispatch the full order from its allocated batches and record the delivery outcome. Dispatch reduces physical stock once.
+5. The system links delivered cases to an invoice. Payments are recorded against the invoice rather than treated as a second sale.
+6. Managers review stock, expiry, financial reports and production recommendations. Batch links allow affected customers to be identified if stock is recalled.
 
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+Expired, rejected, quarantined and recalled cases are blocked from new dispatches. Stock adjustments and significant decisions are recorded for traceability.
 
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
+## Demand forecasting
 
-## Agentic Development
+AquaTrack uses Python and scikit-learn. The application currently uses **Random Forest** for its seven-day product demand forecast and production recommendation. It also displays a 30-day estimate for longer-range review; only the valid seven-day forecast supports production-plan approval. Recommendations combine forecast demand with relevant confirmed orders, a safety allowance, eligible stock and unfinished approved production.
 
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
+The research comparison evaluates a historical-demand benchmark, Random Forest and Gradient Boosting on chronological training, validation and later test periods. The comparison scripts and explanation are in [`analytics/EXPERIMENT_METHOD.md`](analytics/EXPERIMENT_METHOD.md), [`analytics/compare_product_demand.py`](analytics/compare_product_demand.py) and [`analytics/train_product_demand_colab.ipynb`](analytics/train_product_demand_colab.ipynb). Comparison scores for the raw models are **not** the same as scores for the application's deployed weekly procedure, which retrains and applies an error correction. The separate replay is implemented in [`analytics/evaluate_deployed_weekly.py`](analytics/evaluate_deployed_weekly.py).
 
-```bash
-composer require laravel/boost --dev
+All reported model results are based on synthetic data. They do not prove accuracy for a real water producer; genuine later orders would be needed for that assessment.
 
-php artisan boost:install
+## Technology
+
+- Laravel 13 and PHP 8.4 for the web application
+- MySQL for operational records
+- Bootstrap and Vite for the interface
+- Python, NumPy and scikit-learn for forecasting
+- PHPUnit and Python `unittest` for automated checks
+
+## Set up a fresh local installation
+
+You need PHP 8.4 with the extensions required by Laravel and MySQL, Composer, MySQL, Node.js/npm and Python. Use a **new empty database** for a new installation. The existing demonstration database should be backed up and handled separately.
+
+1. Install dependencies and create a local environment file:
+
+   ```powershell
+   composer install
+   npm install
+   npm run build
+   Copy-Item .env.example .env
+   python -m pip install -r analytics/requirements.txt
+   ```
+
+2. In `.env`, set `APP_NAME=AquaTrack`, `APP_URL`, `BUSINESS_TIMEZONE=Africa/Nairobi`, and your own MySQL `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME` and `DB_PASSWORD`. This project's XAMPP installation uses port `3307`; other installations may differ. Set `PYTHON_BINARY` if `python` is not on the command path. Configure a working email transport and verified sender before testing sign-in, invitations or password recovery.
+3. For a **new empty database**, generate an application key and create the schema:
+
+   ```powershell
+   php artisan key:generate
+   php artisan migrate
+   ```
+
+4. Start the application:
+
+   ```powershell
+   php artisan serve --host=127.0.0.1 --port=8000
+   ```
+
+   Open `http://127.0.0.1:8000`. An administrator must set up employee access. Do not publish demonstration passwords or security codes.
+
+Do not run `db:seed`, `migrate:fresh` or a dataset replacement command against an existing or hosted database. The legacy seeder does not create the current packaged-water demonstration dataset. The current dataset import requires an isolated target and the checks described in the [dataset integration plan](database/packaged-data-next/REPLACEMENT_AND_INTEGRATION_PLAN.md).
+
+## Demonstration data
+
+The versioned synthetic dataset covers **1 January 2024 to 5 November 2026**. It includes daily product demand, closed Sundays, orders, batches, quality events, deliveries, invoices, payments and stock movements. Its assumptions and checks are documented in [`database/packaged-data-next/ASSUMPTIONS_AND_METHOD.md`](database/packaged-data-next/ASSUMPTIONS_AND_METHOD.md) and [`database/packaged-data-next/validate_dataset.py`](database/packaged-data-next/validate_dataset.py).
+
+The CSV files are not loaded merely by running migrations. Import them only into a reviewed, backed-up demonstration database. Do not mix them with genuine operational records.
+
+## Tests
+
+Run these from the project directory after installing the dependencies:
+
+```powershell
+php artisan test
+python -m unittest discover -s analytics -p "test_*.py"
+python database/packaged-data-next/validate_dataset.py
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+The first two commands check Laravel and Python behaviour. The final command checks the synthetic dataset and its internal consistency. Retain results with the corresponding code and dataset version when presenting the project.
 
-## Contributing
+## Deployment and limitations
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+A public HTTPS deployment is **in preparation and testing**. This README does not claim that a hosted release is available yet. A live link should be shared only after the database, email, authentication, forecasting and main business workflows have been tested on the hosted service.
 
-## Code of Conduct
-
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
-
-## Security Vulnerabilities
-
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
-
-## License
-
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+This system provides management estimates, not audited financial statements. Its synthetic dataset and model evaluations are suitable for demonstrating the implementation, not for claiming proven performance at a real company.

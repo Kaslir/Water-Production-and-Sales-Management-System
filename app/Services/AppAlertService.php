@@ -73,7 +73,7 @@ class AppAlertService
                 return;
             }
 
-            $today = CarbonImmutable::today('Africa/Nairobi');
+            $today = CarbonImmutable::today(config('app.business_timezone'));
             if (! $force && $settings->last_scan_on === $today->toDateString()) {
                 return;
             }

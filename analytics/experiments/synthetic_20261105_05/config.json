@@ -1,0 +1,71 @@
+{
+  "experiment_id": "synthetic_20261105_05",
+  "executed_utc": "2026-11-05T17:56:23.184660+00:00",
+  "git_commit": "unavailable",
+  "dataset_demand_sha256": "a0f72d8319b1214aecbee16e4fbe4eef41deee0359f3c7c215233c2043ef9f9b",
+  "seed": 20261105,
+  "train_target_end": "2025-12-31",
+  "validation_target_end": "2026-06-30",
+  "test_target_end": "2026-11-05",
+  "horizons": "7 and 30 calendar days; Sunday is closed with zero demand",
+  "target": "Accepted customer order cases; cancelled and draft requests excluded",
+  "origin_schedule": "Sunday weekly origins",
+  "feature_names": {
+    "7": [
+      "last_day",
+      "same_day_last_week",
+      "same_day_two_weeks_ago",
+      "same_day_four_weeks_ago",
+      "last_week_total",
+      "prior_week_total",
+      "last_28_day_mean",
+      "last_28_day_std",
+      "weekly_change",
+      "annual_sin",
+      "annual_cos"
+    ],
+    "30": [
+      "last_day",
+      "same_day_last_week",
+      "same_day_two_weeks_ago",
+      "same_day_four_weeks_ago",
+      "last_7_day_mean",
+      "last_28_day_mean",
+      "last_28_day_std",
+      "origin_weekday_offset"
+    ]
+  },
+  "parameters": {
+    "random_forest": {
+      "n_estimators": 120,
+      "max_depth": 5,
+      "min_samples_leaf": 4,
+      "random_state": 20261105,
+      "n_jobs": 1
+    },
+    "gradient_boosting": {
+      "n_estimators": 120,
+      "max_depth": 3,
+      "learning_rate": 0.05,
+      "min_samples_leaf": 4,
+      "random_state": 20261105
+    }
+  },
+  "python": "3.14.3 (tags/v3.14.3:323c59a, Feb  3 2026, 16:04:56) [MSC v.1944 64 bit (AMD64)]",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "numpy": "2.5.4",
+  "sklearn": "1.9.1",
+  "joblib": "1.6.0",
+  "leakage_checks_passed": true,
+  "validation_selected_method_by_product": {
+    "product_1_7d": "random_forest",
+    "product_1_30d": "historical_baseline",
+    "product_2_7d": "random_forest",
+    "product_2_30d": "random_forest",
+    "product_3_7d": "gradient_boosting",
+    "product_3_30d": "random_forest",
+    "product_4_7d": "random_forest",
+    "product_4_30d": "random_forest"
+  },
+  "test_caveat": "Chronologically held out in this run, but prior project work examined some 2026 dates; not a genuinely untouched external test."
+}

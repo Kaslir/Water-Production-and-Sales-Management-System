@@ -5,9 +5,15 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class DispatchLine extends Model
 {
+    public function failedDeliveryLine(): HasOne
+    {
+        return $this->hasOne(FailedDeliveryLine::class);
+    }
+
     public function dispatch(): BelongsTo
     {
         return $this->belongsTo(Dispatch::class);

@@ -7,6 +7,7 @@ use App\Models\BatchReservation;
 use App\Models\CustomerRefund;
 use App\Models\DeliveryArea;
 use App\Models\DeliveryFeeCredit;
+use App\Models\DeliveryTrip;
 use App\Models\DeliveryZone;
 use App\Models\Dispatch;
 use App\Models\DispatchLine;
@@ -117,7 +118,7 @@ class PackagedWaterService
         DB::transaction(function () use ($batch, $actorId, $notes, $rejectedCases, $qualityData): void {
             $batch = ProductionBatch::query()->lockForUpdate()->findOrFail($batch->id);
             $this->require($batch->status === 'quality_hold', 'Only a batch on quality hold can be released.');
-            $this->require($batch->expires_on->gt(today()), 'An expired batch cannot be released.');
+            $this->require($batch->expires_on->gt(CarbonImmutable::today(config('app.business_timezone'))), 'An expired batch cannot be released.');
             $this->require($rejectedCases >= 0 && $rejectedCases < $batch->cases_on_hand, 'At least one saleable case must remain after quality rejection.');
             $saleableCases = $batch->cases_on_hand - $rejectedCases;
             $batch->update(['status' => 'released', 'quality_notes' => $notes, 'quality_rejected_cases' => $rejectedCases, 'cases_on_hand' => $saleableCases, 'cost_per_case' => round((float) $batch->total_cost / $saleableCases, 4), 'released_by' => $actorId, 'released_at' => now(), 'quality_tested_on' => $qualityData['quality_tested_on'] ?? null, 'quality_evidence_reference' => $qualityData['quality_evidence_reference'] ?? null, 'quality_ph' => $qualityData['quality_ph'] ?? null, 'quality_turbidity_ntu' => $qualityData['quality_turbidity_ntu'] ?? null, 'microbiological_result' => $qualityData['microbiological_result'] ?? null]);
@@ -133,11 +134,11 @@ class PackagedWaterService
     {
         DB::transaction(function () use ($batch, $actorId, $reason): void {
             $batch = ProductionBatch::query()->lockForUpdate()->findOrFail($batch->id);
-            $this->require($batch->cases_reserved === 0, 'Cancel orders reserving this batch before quarantining it.');
             $this->require(in_array($batch->status, ['quality_hold', 'released'], true), 'Only an unrecalled batch can be quarantined.');
             $previous = $batch->status;
             $batch->update(['status' => 'quarantined', 'quality_notes' => $reason]);
-            $this->auditTrail->record('batch.quarantined', $batch, $actorId, ['status' => $previous], ['status' => 'quarantined'], $reason);
+            $affectedOrders = $this->resolveReservationsAfterBatchHold($batch, $actorId, $reason, 'quarantine');
+            $this->auditTrail->record('batch.quarantined', $batch, $actorId, ['status' => $previous], ['status' => 'quarantined', 'affected_open_orders' => $affectedOrders], $reason);
             $this->alerts->resolve('batch:quality:'.$batch->id);
             $this->alerts->publish('batch:quarantined:'.$batch->id, 'quality', 'high', 'Batch quarantined', $batch->batch_code.' was quarantined. Review the batch before any further action.', 'batch', $batch->id, ['administrator', 'manager', 'inventory_staff']);
         });
@@ -148,29 +149,41 @@ class PackagedWaterService
         DB::transaction(function () use ($batch, $actorId, $reason): void {
             $batch = ProductionBatch::query()->lockForUpdate()->findOrFail($batch->id);
             $this->require($batch->status !== 'recalled', 'This batch has already been recalled.');
-            $orderIds = DB::table('batch_reservations')
-                ->join('sales_order_items', 'batch_reservations.sales_order_item_id', '=', 'sales_order_items.id')
-                ->where('batch_reservations.production_batch_id', $batch->id)
-                ->pluck('sales_order_items.sales_order_id')->unique();
-            foreach ($orderIds as $orderId) {
-                $order = SalesOrder::query()->with('items.reservations')->lockForUpdate()->findOrFail($orderId);
-                foreach ($order->items as $item) {
-                    foreach ($item->reservations as $reservation) {
-                        ProductionBatch::query()->whereKey($reservation->production_batch_id)->decrement('cases_reserved', $reservation->cases_reserved);
-                        $reservation->delete();
-                    }
-                }
-                $order->update(['status' => 'draft']);
-                $this->auditTrail->record('order.reservation_released_for_recall', $order, $actorId, [], ['recalled_batch' => $batch->batch_code], $reason);
-                $this->alerts->resolve('order:dispatch:'.$order->id);
-                $this->alerts->publish('order:reallocation:'.$order->id, 'order', 'high', 'Order needs new stock', $order->order_number.' returned to draft because a reserved batch was recalled.', 'order', $order->id, ['administrator', 'manager', 'sales_staff', 'distribution_staff']);
-            }
             $oldStatus = $batch->status;
             $batch->update(['status' => 'recalled', 'quality_notes' => $reason]);
-            $this->auditTrail->record('batch.recalled', $batch, $actorId, ['status' => $oldStatus], ['status' => 'recalled', 'affected_open_orders' => $orderIds->count()], $reason);
+            $affectedOrders = $this->resolveReservationsAfterBatchHold($batch, $actorId, $reason, 'recall');
+            $this->auditTrail->record('batch.recalled', $batch, $actorId, ['status' => $oldStatus], ['status' => 'recalled', 'affected_open_orders' => $affectedOrders], $reason);
             $this->alerts->resolve('batch:quality:'.$batch->id);
             $this->alerts->publish('batch:recalled:'.$batch->id, 'quality', 'high', 'Urgent batch recall', $batch->batch_code.' was recalled. Check affected stock and customers.', 'batch', $batch->id, ['administrator', 'manager', 'inventory_staff'], ['administrator', 'manager']);
         });
+    }
+
+    private function resolveReservationsAfterBatchHold(ProductionBatch $batch, int $actorId, string $reason, string $cause): int
+    {
+        $orderIds = DB::table('batch_reservations')
+            ->join('sales_order_items', 'batch_reservations.sales_order_item_id', '=', 'sales_order_items.id')
+            ->where('batch_reservations.production_batch_id', $batch->id)
+            ->pluck('sales_order_items.sales_order_id')->unique();
+        foreach ($orderIds as $orderId) {
+            $order = SalesOrder::query()->with('items.reservations')->lockForUpdate()->findOrFail($orderId);
+            foreach ($order->items as $item) {
+                foreach ($item->reservations as $reservation) {
+                    ProductionBatch::query()->whereKey($reservation->production_batch_id)->decrement('cases_reserved', $reservation->cases_reserved);
+                    $reservation->delete();
+                }
+            }
+            $order->update(['status' => 'draft']);
+            $this->auditTrail->record('order.reservation_released_for_'.$cause, $order, $actorId, [], ['unavailable_batch' => $batch->batch_code], $reason);
+            $this->alerts->resolve('order:dispatch:'.$order->id);
+            try {
+                $this->confirmOrder($order, $actorId);
+                $this->auditTrail->record('order.reallocated_after_'.$cause, $order, $actorId, [], ['unavailable_batch' => $batch->batch_code], $reason);
+            } catch (ValidationException) {
+                $this->alerts->publish('order:reallocation:'.$order->id, 'order', 'high', 'Order needs new stock', $order->order_number.' returned to draft because replacement stock is insufficient after a batch '.$cause.'.', 'order', $order->id, ['administrator', 'manager', 'sales_staff', 'distribution_staff']);
+            }
+        }
+
+        return $orderIds->count();
     }
 
     public function disposeBatch(ProductionBatch $batch, int $cases, string $reason, int $actorId): void
@@ -178,8 +191,8 @@ class PackagedWaterService
         DB::transaction(function () use ($batch, $cases, $reason, $actorId): void {
             $batch = ProductionBatch::query()->lockForUpdate()->findOrFail($batch->id);
             $this->require($cases > 0 && $cases <= $batch->cases_on_hand - $batch->cases_reserved, 'Invalid disposal quantity or reserved stock.');
-            $this->require(in_array($batch->status, ['quarantined', 'recalled'], true) || $batch->expires_on->lte(today()), 'Only quarantined, recalled, or expired stock can be disposed.');
-            $disposal = BatchDisposal::create(['production_batch_id' => $batch->id, 'cases' => $cases, 'reason' => $reason, 'disposed_on' => today(), 'recorded_by' => $actorId]);
+            $this->require(in_array($batch->status, ['quarantined', 'recalled'], true) || $batch->expires_on->lte(CarbonImmutable::today(config('app.business_timezone'))), 'Only quarantined, recalled, or expired stock can be disposed.');
+            $disposal = BatchDisposal::create(['production_batch_id' => $batch->id, 'cases' => $cases, 'reason' => $reason, 'disposed_on' => CarbonImmutable::today(config('app.business_timezone')), 'recorded_by' => $actorId]);
             $batch->decrement('cases_on_hand', $cases);
             StockMovement::create(['production_batch_id' => $batch->id, 'signed_cases' => -$cases, 'reason' => 'disposal', 'reference_type' => 'BatchDisposal', 'reference_id' => $disposal->id, 'performed_by' => $actorId, 'notes' => $reason]);
             $this->auditTrail->record('batch.disposed', $batch, $actorId, [], ['cases' => $cases, 'loss' => round($cases * (float) $batch->cost_per_case, 2)], $reason);
@@ -206,8 +219,8 @@ class PackagedWaterService
             $order = SalesOrder::create([
                 'order_number' => 'ORD-'.Str::upper(Str::random(12)),
                 'customer_id' => $data['customer_id'],
-                'ordered_on' => today(),
-                'requested_delivery_on' => $data['requested_delivery_on'] ?? today(),
+                'ordered_on' => CarbonImmutable::today(config('app.business_timezone')),
+                'requested_delivery_on' => $data['requested_delivery_on'] ?? CarbonImmutable::today(config('app.business_timezone')),
                 'status' => 'draft',
                 'delivery_address' => $data['delivery_address'],
                 'delivery_county' => $area ? 'Nairobi' : null,
@@ -238,7 +251,7 @@ class PackagedWaterService
             $this->require($order->status === 'draft', 'Only draft orders can be confirmed.');
             foreach ($order->items as $item) {
                 $needed = $item->cases_ordered;
-                $usableThrough = $order->requested_delivery_on && $order->requested_delivery_on->gt(today()) ? $order->requested_delivery_on : today();
+                $usableThrough = $order->requested_delivery_on && $order->requested_delivery_on->gt(CarbonImmutable::today(config('app.business_timezone'))) ? $order->requested_delivery_on : CarbonImmutable::today(config('app.business_timezone'));
                 $batches = ProductionBatch::query()->where('product_id', $item->product_id)->where('status', 'released')->whereDate('expires_on', '>', $usableThrough)->where('cases_on_hand', '>', 0)->orderBy('expires_on')->orderBy('id')->lockForUpdate()->get();
                 foreach ($batches as $batch) {
                     $available = $batch->cases_on_hand - $batch->cases_reserved;
@@ -273,10 +286,18 @@ class PackagedWaterService
                     $reservation->delete();
                 }
             }
+            $plannedTripIds = $order->deliveryTrips()->where('delivery_trips.status', 'planned')->pluck('delivery_trips.id');
             $order->deliveryTrips()->detach();
             $previous = $order->status;
             $order->update(['status' => 'cancelled']);
             $this->auditTrail->record('order.cancelled', $order, $actorId, ['status' => $previous], ['status' => 'cancelled'], $reason);
+            foreach ($plannedTripIds as $tripId) {
+                $trip = DeliveryTrip::query()->lockForUpdate()->findOrFail($tripId);
+                if ($trip->status === 'planned' && ! $trip->orders()->exists()) {
+                    $trip->update(['status' => 'cancelled']);
+                    $this->auditTrail->record('delivery_trip.cancelled', $trip, $actorId, ['status' => 'planned'], ['status' => 'cancelled'], 'Last assigned order was cancelled: '.$reason);
+                }
+            }
         });
     }
 
@@ -286,13 +307,15 @@ class PackagedWaterService
             $order = SalesOrder::query()->with('items.reservations')->lockForUpdate()->findOrFail($order->id);
             $this->require($order->status === 'confirmed', 'Only confirmed orders can be dispatched.');
             $trip = $order->deliveryTrips()->first();
-            $this->require($order->delivery_area_id === null || $trip !== null, 'Assign this order to a truck trip before dispatch.');
-            $dispatch = Dispatch::create(['sales_order_id' => $order->id, 'dispatched_on' => today(), 'status' => 'dispatched', 'delivery_reference' => $reference, 'dispatched_by' => $actorId]);
+            $this->require($trip !== null && $trip->status === 'dispatched' && (int) $trip->active_dispatch_key === 1, 'Dispatch this order from its active delivery trip.');
+            $usableThrough = collect([$order->requested_delivery_on, $trip->delivery_on, CarbonImmutable::today(config('app.business_timezone'))])->filter()->max();
+            $this->reallocateIneligibleReservations($order, $usableThrough, $actorId);
+            $order->load('items.reservations');
+            $dispatch = Dispatch::create(['sales_order_id' => $order->id, 'dispatched_on' => CarbonImmutable::today(config('app.business_timezone')), 'status' => 'dispatched', 'delivery_reference' => $reference, 'dispatched_by' => $actorId]);
             foreach ($order->items as $item) {
                 $this->require($item->reservations->sum('cases_reserved') === $item->cases_ordered, 'Order reservation is incomplete.');
                 foreach ($item->reservations as $reservation) {
                     $batch = ProductionBatch::query()->lockForUpdate()->findOrFail($reservation->production_batch_id);
-                    $usableThrough = collect([$order->requested_delivery_on, $trip?->delivery_on, today()])->filter()->max();
                     $this->require($batch->status === 'released' && $batch->expires_on->gt($usableThrough) && $batch->cases_on_hand >= $reservation->cases_reserved, 'A reserved batch is no longer eligible for dispatch.');
                     DispatchLine::create(['dispatch_id' => $dispatch->id, 'sales_order_item_id' => $item->id, 'production_batch_id' => $batch->id, 'cases' => $reservation->cases_reserved, 'cost_per_case' => $batch->cost_per_case]);
                     $batch->decrement('cases_on_hand', $reservation->cases_reserved);
@@ -310,17 +333,121 @@ class PackagedWaterService
         });
     }
 
+    private function reallocateIneligibleReservations(SalesOrder $order, $usableThrough, int $actorId): void
+    {
+        foreach ($order->items as $item) {
+            $needed = 0;
+            foreach ($item->reservations as $reservation) {
+                $batch = ProductionBatch::query()->lockForUpdate()->findOrFail($reservation->production_batch_id);
+                if ($batch->status === 'released' && $batch->expires_on->gt($usableThrough) && $batch->cases_on_hand >= $reservation->cases_reserved) {
+                    continue;
+                }
+                $needed += $reservation->cases_reserved;
+                $batch->decrement('cases_reserved', $reservation->cases_reserved);
+                $reservation->delete();
+                $this->auditTrail->record('order.reservation_released', $order, $actorId, ['batch_id' => $batch->id, 'cases' => $reservation->cases_reserved], [], 'Reserved stock became ineligible before dispatch.');
+            }
+            if ($needed === 0) {
+                continue;
+            }
+            $replacements = ProductionBatch::query()->where('product_id', $item->product_id)->where('status', 'released')
+                ->whereDate('expires_on', '>', $usableThrough)->where('cases_on_hand', '>', 0)
+                ->orderBy('expires_on')->orderBy('id')->lockForUpdate()->get();
+            foreach ($replacements as $batch) {
+                $take = min($needed, max(0, $batch->cases_on_hand - $batch->cases_reserved));
+                if ($take === 0) {
+                    continue;
+                }
+                $reservation = BatchReservation::query()->firstOrNew(['sales_order_item_id' => $item->id, 'production_batch_id' => $batch->id]);
+                $reservation->cases_reserved = (int) $reservation->cases_reserved + $take;
+                $reservation->save();
+                $batch->increment('cases_reserved', $take);
+                $needed -= $take;
+                $this->auditTrail->record('order.reservation_reallocated', $order, $actorId, [], ['batch_id' => $batch->id, 'cases' => $take]);
+                if ($needed === 0) {
+                    break;
+                }
+            }
+            $this->require($needed === 0, 'Reserved stock is no longer eligible, and there are not enough replacement cases. Resolve the order before dispatch.');
+        }
+    }
+
     public function deliverOrder(SalesOrder $order, int $actorId, array $receipt = []): void
     {
         DB::transaction(function () use ($order, $actorId, $receipt): void {
             $order = SalesOrder::query()->with('dispatch')->lockForUpdate()->findOrFail($order->id);
             $this->require($order->status === 'dispatched' && $order->dispatch !== null, 'The order has not been dispatched.');
-            $order->dispatch->update(['status' => 'delivered', 'delivered_on' => today(), 'received_by' => $receipt['received_by'] ?? null, 'receipt_reference' => $receipt['receipt_reference'] ?? null]);
+            $order->dispatch->update(['status' => 'delivered', 'delivered_on' => CarbonImmutable::today(config('app.business_timezone')), 'received_by' => $receipt['received_by'] ?? null, 'receipt_reference' => $receipt['receipt_reference'] ?? null]);
             $order->update(['status' => 'delivered']);
             $this->auditTrail->record('order.delivered', $order, $actorId, ['status' => 'dispatched'], ['status' => 'delivered', 'received_by' => $receipt['received_by'] ?? null, 'receipt_reference' => $receipt['receipt_reference'] ?? null]);
             $this->alerts->resolve('order:delivery:'.$order->id);
             $this->alerts->publish('order:invoice:'.$order->id, 'order', 'warning', 'Delivered order needs invoice', $order->order_number.' has been delivered and can now be invoiced.', 'order', $order->id, ['administrator', 'manager', 'sales_staff']);
+            $this->completeTripIfResolved($order, $actorId);
         });
+    }
+
+    public function failDelivery(SalesOrder $order, string $reason, int $actorId): void
+    {
+        DB::transaction(function () use ($order, $reason, $actorId): void {
+            $order = SalesOrder::query()->with('dispatch.lines')->lockForUpdate()->findOrFail($order->id);
+            $this->require($order->status === 'dispatched' && $order->dispatch !== null, 'Only a dispatched order can be marked as a failed delivery.');
+            foreach ($order->dispatch->lines as $line) {
+                DB::table('failed_delivery_lines')->insert(['dispatch_line_id' => $line->id, 'cases' => $line->cases, 'status' => 'with_truck', 'failure_reason' => $reason, 'recorded_by' => $actorId, 'created_at' => now(), 'updated_at' => now()]);
+            }
+            $order->dispatch->update(['status' => 'delivery_failed']);
+            $order->update(['status' => 'delivery_failed']);
+            $this->auditTrail->record('order.delivery_failed', $order, $actorId, ['status' => 'dispatched'], ['status' => 'delivery_failed'], $reason);
+            $this->alerts->resolve('order:delivery:'.$order->id);
+        });
+    }
+
+    public function receiveFailedDelivery(SalesOrder $order, string $reference, int $actorId): void
+    {
+        DB::transaction(function () use ($order, $reference, $actorId): void {
+            $order = SalesOrder::query()->with('dispatch.lines')->lockForUpdate()->findOrFail($order->id);
+            $this->require($order->status === 'delivery_failed', 'The order has no failed delivery awaiting warehouse return.');
+            $ids = $order->dispatch->lines->pluck('id');
+            $this->require(DB::table('failed_delivery_lines')->whereIn('dispatch_line_id', $ids)->where('status', 'with_truck')->count() === $ids->count(), 'This failed delivery has already been returned.');
+            DB::table('failed_delivery_lines')->whereIn('dispatch_line_id', $ids)->update(['status' => 'quality_hold', 'warehouse_reference' => $reference, 'returned_on' => CarbonImmutable::today(config('app.business_timezone'))->toDateString(), 'updated_at' => now()]);
+            $this->auditTrail->record('order.failed_delivery_returned', $order, $actorId, [], ['dispatch_line_ids' => $ids->all(), 'warehouse_reference' => $reference], 'Returned cases remain on quality hold; saleable stock is unchanged.');
+            $this->completeTripIfResolved($order, $actorId);
+        });
+    }
+
+    public function inspectFailedDeliveryLine(int $lineId, bool $passed, string $notes, int $actorId): void
+    {
+        DB::transaction(function () use ($lineId, $passed, $notes, $actorId): void {
+            $line = DispatchLine::query()->lockForUpdate()->findOrFail($lineId);
+            $return = DB::table('failed_delivery_lines')->where('dispatch_line_id', $lineId)->lockForUpdate()->first();
+            $this->require($return && $return->status === 'quality_hold', 'Only returned cases on quality hold can be inspected.');
+            $batch = ProductionBatch::query()->lockForUpdate()->findOrFail($line->production_batch_id);
+            $canRelease = $passed && $batch->status === 'released' && $batch->expires_on->gt(CarbonImmutable::today(config('app.business_timezone')));
+            $this->require(! $passed || $canRelease, 'This batch is no longer released and unexpired; reject the returned cases for disposal.');
+            if ($canRelease) {
+                $batch->increment('cases_on_hand', $return->cases);
+                StockMovement::create(['production_batch_id' => $batch->id, 'signed_cases' => $return->cases, 'reason' => 'failed_delivery_quality_release', 'reference_type' => 'DispatchLine', 'reference_id' => $lineId, 'performed_by' => $actorId]);
+            }
+            DB::table('failed_delivery_lines')->where('id', $return->id)->update(['status' => $canRelease ? 'released' : 'disposed', 'quality_notes' => $notes, 'inspected_by' => $actorId, 'inspected_on' => CarbonImmutable::today(config('app.business_timezone'))->toDateString(), 'updated_at' => now()]);
+            $this->auditTrail->record($canRelease ? 'order.failed_delivery_stock_released' : 'order.failed_delivery_stock_disposed', $line, $actorId, ['status' => 'quality_hold'], ['cases' => $return->cases, 'batch_id' => $batch->id], $notes);
+        });
+    }
+
+    private function completeTripIfResolved(SalesOrder $order, int $actorId): void
+    {
+        $trip = $order->deliveryTrips()->first();
+        if (! $trip || $trip->status !== 'dispatched') {
+            return;
+        }
+        $trip = DeliveryTrip::query()->lockForUpdate()->findOrFail($trip->id);
+        $unresolved = $trip->orders()->whereNotIn('sales_orders.status', ['delivered', 'invoiced', 'paid', 'delivery_failed'])->exists();
+        $goodsWithTruck = DB::table('failed_delivery_lines')->join('dispatch_lines', 'failed_delivery_lines.dispatch_line_id', '=', 'dispatch_lines.id')
+            ->join('dispatches', 'dispatch_lines.dispatch_id', '=', 'dispatches.id')
+            ->join('delivery_trip_orders', 'dispatches.sales_order_id', '=', 'delivery_trip_orders.sales_order_id')
+            ->where('delivery_trip_orders.delivery_trip_id', $trip->id)->where('failed_delivery_lines.status', 'with_truck')->exists();
+        if (! $unresolved && ! $goodsWithTruck) {
+            $trip->update(['status' => 'completed', 'active_dispatch_key' => null]);
+            $this->auditTrail->record('delivery_trip.completed', $trip, $actorId, ['status' => 'dispatched'], ['status' => 'completed']);
+        }
     }
 
     public function invoiceOrder(SalesOrder $order, int $actorId): Invoice
@@ -328,7 +455,7 @@ class PackagedWaterService
         return DB::transaction(function () use ($order, $actorId): Invoice {
             $order = SalesOrder::query()->lockForUpdate()->findOrFail($order->id);
             $this->require($order->status === 'delivered', 'Only delivered orders can be invoiced.');
-            $invoice = Invoice::create(['sales_order_id' => $order->id, 'invoice_number' => 'INV-'.Str::upper(Str::random(12)), 'issued_on' => today(), 'amount' => $order->total_amount, 'status' => 'unpaid']);
+            $invoice = Invoice::create(['sales_order_id' => $order->id, 'invoice_number' => 'INV-'.Str::upper(Str::random(12)), 'issued_on' => CarbonImmutable::today(config('app.business_timezone')), 'amount' => $order->total_amount, 'status' => 'unpaid']);
             $order->update(['status' => 'invoiced']);
             $this->auditTrail->record('invoice.issued', $invoice, $actorId, [], ['amount' => $invoice->amount]);
             $this->alerts->resolve('order:invoice:'.$order->id);
@@ -342,9 +469,12 @@ class PackagedWaterService
         return DB::transaction(function () use ($invoice, $data, $actorId): Payment {
             $invoice = Invoice::query()->with(['activePayments', 'returns', 'deliveryFeeCredit'])->lockForUpdate()->findOrFail($invoice->id);
             $remaining = round((float) $invoice->amount - (float) $invoice->returns->sum('credit_amount') - (float) ($invoice->deliveryFeeCredit?->amount ?? 0) - (float) $invoice->activePayments->sum('amount'), 2);
-            $this->require($data['amount'] > 0 && $data['amount'] <= $remaining, 'Payment exceeds the outstanding invoice balance.');
-            $payment = Payment::create(['invoice_id' => $invoice->id, 'amount' => $data['amount'], 'paid_on' => today(), 'method' => $data['method'], 'reference' => $data['reference'] ?? null, 'recorded_by' => $actorId]);
-            $paid = round($remaining - $data['amount'], 2) <= 0;
+            $this->require(preg_match('/^\d+(?:\.\d{1,2})?$/', (string) $data['amount']) === 1, 'Payment must use at most two decimal places.');
+            $amountCents = (int) round((float) $data['amount'] * 100);
+            $this->require($amountCents > 0 && $amountCents <= (int) round($remaining * 100), 'Payment exceeds the outstanding invoice balance.');
+            $data['amount'] = number_format($amountCents / 100, 2, '.', '');
+            $payment = Payment::create(['invoice_id' => $invoice->id, 'amount' => $data['amount'], 'paid_on' => CarbonImmutable::today(config('app.business_timezone')), 'method' => $data['method'], 'reference' => $data['reference'] ?? null, 'recorded_by' => $actorId]);
+            $paid = $amountCents === (int) round($remaining * 100);
             $invoice->update(['status' => $paid ? 'paid' : 'part_paid']);
             if ($paid) {
                 SalesOrder::query()->whereKey($invoice->sales_order_id)->update(['status' => 'paid']);
@@ -368,7 +498,7 @@ class PackagedWaterService
             $discountRate = $subtotal > 0 ? (float) $invoice->order->discount / $subtotal : 0;
             $creditAmount = round($cases * (float) $item->price_per_case * (1 - $discountRate), 2);
             $this->require((float) $invoice->returns->sum('credit_amount') + $creditAmount <= (float) $invoice->amount - (float) $invoice->order->delivery_fee + 0.01, 'Product credits exceed the bottled-water amount.');
-            $return = SalesReturn::create(['invoice_id' => $invoice->id, 'dispatch_line_id' => $line->id, 'cases' => $cases, 'credit_amount' => $creditAmount, 'returned_on' => today(), 'disposition' => 'destroyed_on_receipt', 'reason' => $reason, 'recorded_by' => $actorId]);
+            $return = SalesReturn::create(['invoice_id' => $invoice->id, 'dispatch_line_id' => $line->id, 'cases' => $cases, 'credit_amount' => $creditAmount, 'returned_on' => CarbonImmutable::today(config('app.business_timezone')), 'disposition' => 'destroyed_on_receipt', 'reason' => $reason, 'recorded_by' => $actorId]);
             $netDue = round((float) $invoice->amount - (float) $invoice->returns->sum('credit_amount') - $creditAmount - (float) ($invoice->deliveryFeeCredit?->amount ?? 0) - (float) $invoice->activePayments->sum('amount'), 2);
             $invoice->update(['status' => $netDue < 0 ? 'credit_due' : ($netDue == 0.0 ? 'settled' : ((float) $invoice->activePayments->sum('amount') > 0 ? 'part_paid' : 'credited'))]);
             $this->auditTrail->record('invoice.return_credited', $return, $actorId, [], ['cases' => $cases, 'credit_amount' => $creditAmount, 'disposition' => 'destroyed_on_receipt'], $reason);
@@ -383,7 +513,7 @@ class PackagedWaterService
             $invoice = Invoice::query()->with(['activePayments', 'returns', 'refunds', 'deliveryFeeCredit'])->lockForUpdate()->findOrFail($invoice->id);
             $creditDue = round((float) $invoice->activePayments->sum('amount') - ((float) $invoice->amount - (float) $invoice->returns->sum('credit_amount') - (float) ($invoice->deliveryFeeCredit?->amount ?? 0)) - (float) $invoice->refunds->sum('amount'), 2);
             $this->require($data['amount'] > 0 && $data['amount'] <= $creditDue, 'Refund exceeds the customer credit due.');
-            $refund = CustomerRefund::create($data + ['invoice_id' => $invoice->id, 'refunded_on' => today(), 'recorded_by' => $actorId]);
+            $refund = CustomerRefund::create($data + ['invoice_id' => $invoice->id, 'refunded_on' => CarbonImmutable::today(config('app.business_timezone')), 'recorded_by' => $actorId]);
             if (round($creditDue - $data['amount'], 2) <= 0) {
                 $invoice->update(['status' => 'settled']);
             }

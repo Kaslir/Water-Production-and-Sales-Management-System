@@ -1,0 +1,42 @@
+{
+  "1": {
+    "7": {
+      "available": true,
+      "predicted_cases": 165.98
+    },
+    "30": {
+      "available": true,
+      "predicted_cases": 695.6
+    }
+  },
+  "2": {
+    "7": {
+      "available": true,
+      "predicted_cases": 123.43
+    },
+    "30": {
+      "available": true,
+      "predicted_cases": 539.22
+    }
+  },
+  "3": {
+    "7": {
+      "available": true,
+      "predicted_cases": 59.54
+    },
+    "30": {
+      "available": true,
+      "predicted_cases": 246.04
+    }
+  },
+  "4": {
+    "7": {
+      "available": true,
+      "predicted_cases": 48.33
+    },
+    "30": {
+      "available": true,
+      "predicted_cases": 205.08
+    }
+  }
+}

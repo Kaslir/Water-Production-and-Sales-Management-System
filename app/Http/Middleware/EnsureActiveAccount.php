@@ -11,7 +11,9 @@ class EnsureActiveAccount
 {
     public function handle(Request $request, Closure $next): Response
     {
-        if ($request->user() && ! $request->user()->is_active) {
+        // Re-read the account on each protected request so an already-authenticated session
+        // cannot continue using an in-memory copy after an administrator disables it.
+        if ($request->user() && ! $request->user()->fresh()?->is_active) {
             Auth::logout();
             $request->session()->invalidate();
             $request->session()->regenerateToken();

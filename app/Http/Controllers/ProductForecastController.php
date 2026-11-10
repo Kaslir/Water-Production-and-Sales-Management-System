@@ -29,32 +29,33 @@ class ProductForecastController extends Controller
         $products = Product::query()->orderBy('volume_ml')->get();
         $latestForecasts = ProductForecast::query()
             ->where('method', 'random_forest')
-            ->orderByDesc('origin_date')->get()->groupBy('product_id')->map(function ($rows) {
+            ->orderByDesc('origin_date')->orderByDesc('id')->get()->groupBy('product_id')->map(function ($rows) {
                 $latestOrigin = $rows->first()->origin_date->toDateString();
 
                 return $rows->filter(fn ($row) => $row->origin_date->toDateString() === $latestOrigin);
             });
-        $latestOrderDate = SalesOrder::query()->whereIn('status', ['confirmed', 'dispatched', 'delivered', 'invoiced', 'paid'])->max('ordered_on');
-        $stock = ProductionBatch::query()->where('status', 'released')->whereDate('expires_on', '>', today())->get()->groupBy('product_id')->map(fn ($batches) => $batches->sum(fn ($batch) => $batch->cases_on_hand - $batch->cases_reserved));
+        $latestOrderDate = SalesOrder::query()->whereIn('status', ['confirmed', 'dispatched', 'delivery_failed', 'delivered', 'invoiced', 'paid'])->max('ordered_on');
+        $stock = ProductionBatch::query()->where('status', 'released')->whereDate('expires_on', '>', CarbonImmutable::today(config('app.business_timezone')))->get()->groupBy('product_id')->map(fn ($batches) => $batches->sum(fn ($batch) => $batch->cases_on_hand - $batch->cases_reserved));
         $planning = [];
         foreach ($latestForecasts as $productId => $forecasts) {
             foreach ([7, 30] as $days) {
                 $selected = $forecasts->first(fn ($row) => $row->horizon_days === $days && ($row->evaluation['selected'] ?? false));
-                if ($days === 7 && $selected && ($selected->evaluation['mode'] ?? null) === 'current' && CarbonImmutable::parse($selected->origin_date)->addDays(7)->gte(today())) {
+                if ($days === 7 && $selected && ($selected->evaluation['mode'] ?? null) === 'current' && CarbonImmutable::parse($selected->origin_date)->addDays(7)->gte(CarbonImmutable::today(config('app.business_timezone')))) {
                     $planning[$productId][$days] = $service->recommendation($selected);
                 }
             }
         }
         $completedEvaluations = ProductForecast::query()->with('product')
-            ->where('horizon_days', 7)->where('method', 'random_forest')->orderByDesc('origin_date')->limit(80)->get()
+            ->where('horizon_days', 7)->where('method', 'random_forest')->orderByDesc('origin_date')->orderByDesc('id')->limit(80)->get()
+            ->unique(fn ($forecast) => $forecast->product_id.'-'.$forecast->origin_date->toDateString())
             ->filter(fn ($forecast) => ($forecast->evaluation['selected'] ?? false)
                 && ($forecast->evaluation['mode'] ?? null) === 'current'
                 && ($forecast->evaluation['week_start'] ?? null)
-                && CarbonImmutable::parse($forecast->origin_date)->addDays(7)->lt(today()))
+                && CarbonImmutable::parse($forecast->origin_date)->addDays(7)->lt(CarbonImmutable::today(config('app.business_timezone'))))
             ->map(function ($forecast) {
                 $weekStart = CarbonImmutable::parse($forecast->origin_date)->addDay();
                 $weekEnd = $weekStart->addDays(6);
-                $hasWeeklyOrders = SalesOrder::query()->whereIn('status', ['confirmed', 'dispatched', 'delivered', 'invoiced', 'paid'])
+                $hasWeeklyOrders = SalesOrder::query()->whereIn('status', ['confirmed', 'dispatched', 'delivery_failed', 'delivered', 'invoiced', 'paid'])
                     ->whereDate('ordered_on', '>=', $weekStart->toDateString())
                     ->whereDate('ordered_on', '<=', $weekEnd->toDateString())->exists();
                 if (! $hasWeeklyOrders) {
@@ -63,7 +64,7 @@ class ProductForecastController extends Controller
                 $actualCases = (int) DB::table('sales_order_items')
                     ->join('sales_orders', 'sales_order_items.sales_order_id', '=', 'sales_orders.id')
                     ->where('sales_order_items.product_id', $forecast->product_id)
-                    ->whereIn('sales_orders.status', ['confirmed', 'dispatched', 'delivered', 'invoiced', 'paid'])
+                    ->whereIn('sales_orders.status', ['confirmed', 'dispatched', 'delivery_failed', 'delivered', 'invoiced', 'paid'])
                     ->whereDate('sales_orders.ordered_on', '>=', $weekStart->toDateString())
                     ->whereDate('sales_orders.ordered_on', '<=', $weekEnd->toDateString())
                     ->sum('sales_order_items.cases_ordered');
@@ -118,25 +119,31 @@ class ProductForecastController extends Controller
             && $forecast->method === 'random_forest'
             && (bool) ($forecast->evaluation['selected'] ?? false)
             && ($forecast->evaluation['mode'] ?? null) === 'current'
-            && $forecast->origin_date->lt(today())
-            && CarbonImmutable::parse($forecast->origin_date)->addDays(7)->gte(today()),
+            && $forecast->origin_date->lt(CarbonImmutable::today(config('app.business_timezone')))
+            && CarbonImmutable::parse($forecast->origin_date)->addDays(7)->gte(CarbonImmutable::today(config('app.business_timezone'))),
             422
         );
         $data = $request->validate([
             'approved_cases' => ['required', 'integer', 'min:0'],
-            'planned_for' => ['required', 'date', 'after_or_equal:'.today()->toDateString(), 'before_or_equal:'.CarbonImmutable::parse($forecast->origin_date)->addDays(7)->toDateString()],
+            'planned_for' => ['required', 'date', 'after_or_equal:'.CarbonImmutable::today(config('app.business_timezone'))->toDateString(), 'before_or_equal:'.CarbonImmutable::parse($forecast->origin_date)->addDays(7)->toDateString()],
             'reason' => ['nullable', 'string', 'max:2000'],
         ]);
-        $currentRecommendation = $service->recommendation($forecast);
-        $data['recommended_cases'] = $currentRecommendation['recommended_cases'] + $currentRecommendation['planned_cases'];
-        if ($data['recommended_cases'] !== (int) $data['approved_cases']) {
-            $request->validate(['reason' => ['required', 'string', 'max:2000']]);
-        }
-        DB::transaction(function () use ($data, $forecast, $request, $auditTrail, $alerts): void {
+        DB::transaction(function () use ($data, $forecast, $request, $auditTrail, $alerts, $service): void {
+            // Serialize decisions for the same product, including approvals of different forecast runs.
+            DB::table('products')->where('id', $forecast->product_id)->lockForUpdate()->first();
+            $forecast = ProductForecast::query()->lockForUpdate()->findOrFail($forecast->id);
+            if (ProductionForecastDecision::query()->where('product_forecast_id', $forecast->id)->exists()) {
+                throw ValidationException::withMessages(['forecast' => 'This forecast has already been approved. Generate a new forecast to revise the plan.']);
+            }
+            $currentRecommendation = $service->recommendation($forecast);
+            $data['recommended_cases'] = $currentRecommendation['recommended_cases'] + $currentRecommendation['planned_cases'];
+            if ($data['recommended_cases'] !== (int) $data['approved_cases'] && blank($data['reason'] ?? null)) {
+                throw ValidationException::withMessages(['reason' => 'Explain why the approved quantity differs from the recommendation.']);
+            }
             ProductionForecastDecision::query()->where('plan_status', 'planned')
                 ->whereHas('forecast', fn ($query) => $query->where('product_id', $forecast->product_id))
                 ->update(['plan_status' => 'superseded']);
-            $decision = ProductionForecastDecision::create($data + ['product_forecast_id' => $forecast->id, 'decided_by' => $request->user()->user_id, 'plan_status' => 'planned']);
+            $decision = ProductionForecastDecision::create($data + ['product_forecast_id' => $forecast->id, 'decided_by' => $request->user()->user_id, 'plan_status' => 'planned', 'forecast_predicted_cases' => $forecast->predicted_cases, 'forecast_mae_cases' => $forecast->mae_cases, 'forecast_bias_cases' => $forecast->bias_cases, 'forecast_evaluation' => $forecast->evaluation]);
             $auditTrail->record('forecast.decision_recorded', $decision, $request->user()->user_id, [], ['recommended_cases' => $decision->recommended_cases, 'approved_cases' => $decision->approved_cases, 'planned_for' => $decision->planned_for->toDateString()], $decision->reason);
             $alerts->publish('plan:approved:'.$decision->id, 'plan', 'warning', 'Production plan approved', $forecast->product->name.' has an approved plan for '.$decision->approved_cases.' cases on '.$decision->planned_for->format('d M Y').'.', 'plan', $decision->id, ['administrator', 'manager', 'production_staff']);
         });

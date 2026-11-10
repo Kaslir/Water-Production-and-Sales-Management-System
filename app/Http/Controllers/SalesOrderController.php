@@ -12,6 +12,7 @@ use App\Models\SalesOrder;
 use App\Services\AppAlertService;
 use App\Services\AuditTrail;
 use App\Services\PackagedWaterService;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -41,7 +42,7 @@ class SalesOrderController extends Controller
         $data = $request->validate([
             'customer_id' => ['required', 'exists:customers,customer_id'],
             'delivery_address' => ['required', 'string', 'max:255'],
-            'requested_delivery_on' => ['required', 'date', 'after_or_equal:today'],
+            'requested_delivery_on' => ['required', 'date', 'after_or_equal:'.CarbonImmutable::today(config('app.business_timezone'))->toDateString()],
             'discount' => ['nullable', 'numeric', 'min:0', 'decimal:0,2'],
             'delivery_area_id' => ['required', 'integer', 'exists:delivery_areas,id'],
             'price_override_reason' => ['nullable', 'string', 'max:500'],
@@ -74,7 +75,7 @@ class SalesOrderController extends Controller
 
     public function show(SalesOrder $order): View
     {
-        $order->load(['customer', 'deliveryArea', 'deliveryZone', 'deliveryTrips', 'items.product', 'items.reservations.batch', 'dispatch.lines.batch', 'invoice.payments', 'invoice.activePayments', 'invoice.refunds', 'invoice.returns', 'invoice.deliveryFeeCredit']);
+        $order->load(['customer', 'deliveryArea', 'deliveryZone', 'deliveryTrips', 'items.product', 'items.reservations.batch', 'dispatch.lines.batch', 'dispatch.lines.failedDeliveryLine', 'invoice.payments', 'invoice.activePayments', 'invoice.refunds', 'invoice.returns', 'invoice.deliveryFeeCredit']);
 
         return view('packaged.order-show', compact('order'));
     }
@@ -106,9 +107,7 @@ class SalesOrderController extends Controller
     public function dispatch(Request $request, SalesOrder $order, PackagedWaterService $service): RedirectResponse
     {
         $data = $request->validate(['delivery_reference' => ['required', 'string', 'max:120'], 'cases' => ['prohibited']]);
-        $service->dispatchOrder($order, $request->user()->user_id, $data['delivery_reference']);
-
-        return back()->with('status', 'Order dispatched; stock deducted once.');
+        throw ValidationException::withMessages(['workflow' => 'Dispatch complete customer orders from their planned delivery trip.']);
     }
 
     public function deliver(Request $request, SalesOrder $order, PackagedWaterService $service): RedirectResponse
@@ -117,6 +116,30 @@ class SalesOrderController extends Controller
         $service->deliverOrder($order, $request->user()->user_id, $data);
 
         return back()->with('status', 'Delivery confirmed.');
+    }
+
+    public function deliveryFailed(Request $request, SalesOrder $order, PackagedWaterService $service): RedirectResponse
+    {
+        $data = $request->validate(['reason' => ['required', 'string', 'max:2000']]);
+        $service->failDelivery($order, $data['reason'], $request->user()->user_id);
+
+        return back()->with('status', 'Delivery failure recorded. The goods remain with the truck until warehouse return is confirmed.');
+    }
+
+    public function warehouseReturn(Request $request, SalesOrder $order, PackagedWaterService $service): RedirectResponse
+    {
+        $data = $request->validate(['warehouse_reference' => ['required', 'string', 'max:120']]);
+        $service->receiveFailedDelivery($order, $data['warehouse_reference'], $request->user()->user_id);
+
+        return back()->with('status', 'Returned cases are on quality hold. The truck is available once all trip stops are resolved.');
+    }
+
+    public function inspectFailedDelivery(Request $request, DispatchLine $line, PackagedWaterService $service): RedirectResponse
+    {
+        $data = $request->validate(['result' => ['required', 'in:pass,fail'], 'notes' => ['required', 'string', 'max:2000']]);
+        $service->inspectFailedDeliveryLine($line->id, $data['result'] === 'pass', $data['notes'], $request->user()->user_id);
+
+        return back()->with('status', 'Returned cases inspected and their disposition recorded.');
     }
 
     public function invoice(Request $request, SalesOrder $order, PackagedWaterService $service): RedirectResponse
@@ -128,7 +151,7 @@ class SalesOrderController extends Controller
 
     public function payment(Request $request, Invoice $invoice, PackagedWaterService $service): RedirectResponse
     {
-        $data = $request->validate(['amount' => ['required', 'numeric', 'gt:0'], 'method' => ['required', 'string', 'max:80'], 'reference' => ['nullable', 'string', 'max:120']]);
+        $data = $request->validate(['amount' => ['required', 'numeric', 'gt:0', 'decimal:0,2'], 'method' => ['required', 'string', 'max:80'], 'reference' => ['nullable', 'string', 'max:120']]);
         $service->recordPayment($invoice, $data, $request->user()->user_id);
 
         return back()->with('status', 'Payment recorded.');
@@ -168,8 +191,8 @@ class SalesOrderController extends Controller
 
     public function closeDay(Request $request, AuditTrail $auditTrail): RedirectResponse
     {
-        $data = $request->validate(['order_day' => ['required', 'date', 'before_or_equal:today']]);
-        $hasOrders = SalesOrder::query()->whereIn('status', ['confirmed', 'dispatched', 'delivered', 'invoiced', 'paid'])->whereDate('ordered_on', $data['order_day'])->exists();
+        $data = $request->validate(['order_day' => ['required', 'date', 'before_or_equal:'.CarbonImmutable::today(config('app.business_timezone'))->toDateString()]]);
+        $hasOrders = SalesOrder::query()->whereIn('status', ['confirmed', 'dispatched', 'delivery_failed', 'delivered', 'invoiced', 'paid'])->whereDate('ordered_on', $data['order_day'])->exists();
         if ($hasOrders) {
             throw ValidationException::withMessages(['order_day' => 'Accepted orders are already recorded for this date.']);
         }

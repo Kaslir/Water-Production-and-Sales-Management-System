@@ -1,0 +1,2 @@
+Dataset validation passed. Product count: 4. Chronology checks passed.
+Prediction rows: 936. Model artefacts: 32.

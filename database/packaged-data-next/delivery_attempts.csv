@@ -1,0 +1,68 @@
+attempt_id,trip_id,order_id,dispatch_id,attempted_on,attempt_status,reason,resolution
+1,11,109,109,2024-01-12,failed,Recipient unavailable at delivery address,Successful retry on the same trip
+2,11,109,109,2024-01-12,delivered,Recipient confirmed receipt on retry,Signed receipt recorded
+3,113,1107,1099,2024-05-13,failed,Recipient unavailable at delivery address,Successful retry on the same trip
+4,113,1107,1099,2024-05-13,delivered,Recipient confirmed receipt on retry,Signed receipt recorded
+5,135,1328,1318,2024-06-07,failed,Recipient unavailable at delivery address,Successful retry on the same trip
+6,135,1328,1318,2024-06-07,delivered,Recipient confirmed receipt on retry,Signed receipt recorded
+7,152,1506,1496,2024-06-27,failed,Recipient unavailable at delivery address,Successful retry on the same trip
+8,152,1506,1496,2024-06-27,delivered,Recipient confirmed receipt on retry,Signed receipt recorded
+9,170,1695,1684,2024-07-18,failed,Recipient unavailable at delivery address,Successful retry on the same trip
+10,170,1695,1684,2024-07-18,delivered,Recipient confirmed receipt on retry,Signed receipt recorded
+11,210,2067,2055,2024-09-04,failed,Recipient unavailable at delivery address,Successful retry on the same trip
+12,210,2067,2055,2024-09-04,delivered,Recipient confirmed receipt on retry,Signed receipt recorded
+13,276,2704,2690,2024-11-20,failed,Recipient unavailable at delivery address,Successful retry on the same trip
+14,276,2704,2690,2024-11-20,delivered,Recipient confirmed receipt on retry,Signed receipt recorded
+15,286,2801,2787,2024-12-02,failed,Recipient unavailable at delivery address,Successful retry on the same trip
+16,286,2801,2787,2024-12-02,delivered,Recipient confirmed receipt on retry,Signed receipt recorded
+17,313,3050,3034,2025-01-02,failed,Recipient unavailable at delivery address,Successful retry on the same trip
+18,313,3050,3034,2025-01-02,delivered,Recipient confirmed receipt on retry,Signed receipt recorded
+19,314,3060,3044,2025-01-03,failed,Recipient unavailable at delivery address,Successful retry on the same trip
+20,314,3060,3044,2025-01-03,delivered,Recipient confirmed receipt on retry,Signed receipt recorded
+21,316,3075,3059,2025-01-06,failed,Recipient unavailable at delivery address,Successful retry on the same trip
+22,316,3075,3059,2025-01-06,delivered,Recipient confirmed receipt on retry,Signed receipt recorded
+23,392,3828,3809,2025-04-05,failed,Recipient unavailable at delivery address,Successful retry on the same trip
+24,392,3828,3809,2025-04-05,delivered,Recipient confirmed receipt on retry,Signed receipt recorded
+25,402,3920,3901,2025-04-17,failed,Recipient unavailable at delivery address,Successful retry on the same trip
+26,402,3920,3901,2025-04-17,delivered,Recipient confirmed receipt on retry,Signed receipt recorded
+27,412,4016,3997,2025-04-29,failed,Recipient unavailable at delivery address,Successful retry on the same trip
+28,412,4016,3997,2025-04-29,delivered,Recipient confirmed receipt on retry,Signed receipt recorded
+29,426,4159,4140,2025-05-15,failed,Recipient unavailable at delivery address,Successful retry on the same trip
+30,426,4159,4140,2025-05-15,delivered,Recipient confirmed receipt on retry,Signed receipt recorded
+31,438,4259,4239,2025-05-29,failed,Recipient unavailable at delivery address,Successful retry on the same trip
+32,438,4259,4239,2025-05-29,delivered,Recipient confirmed receipt on retry,Signed receipt recorded
+33,439,4276,4256,2025-05-30,failed,Recipient unavailable at delivery address,Successful retry on the same trip
+34,439,4276,4256,2025-05-30,delivered,Recipient confirmed receipt on retry,Signed receipt recorded
+35,452,4394,4374,2025-06-14,failed,Recipient unavailable at delivery address,Successful retry on the same trip
+36,452,4394,4374,2025-06-14,delivered,Recipient confirmed receipt on retry,Signed receipt recorded
+37,516,5025,5000,2025-08-28,failed,Recipient unavailable at delivery address,Successful retry on the same trip
+38,516,5025,5000,2025-08-28,delivered,Recipient confirmed receipt on retry,Signed receipt recorded
+39,521,5072,5047,2025-09-03,failed,Recipient unavailable at delivery address,Successful retry on the same trip
+40,521,5072,5047,2025-09-03,delivered,Recipient confirmed receipt on retry,Signed receipt recorded
+41,545,5308,5279,2025-10-02,failed,Recipient unavailable at delivery address,Successful retry on the same trip
+42,545,5308,5279,2025-10-02,delivered,Recipient confirmed receipt on retry,Signed receipt recorded
+43,606,5911,5881,2025-12-12,failed,Recipient unavailable at delivery address,Successful retry on the same trip
+44,606,5911,5881,2025-12-12,delivered,Recipient confirmed receipt on retry,Signed receipt recorded
+45,643,6255,6223,2026-01-24,failed,Recipient unavailable at delivery address,Successful retry on the same trip
+46,643,6255,6223,2026-01-24,delivered,Recipient confirmed receipt on retry,Signed receipt recorded
+47,669,6504,6472,2026-02-24,failed,Recipient unavailable at delivery address,Successful retry on the same trip
+48,669,6504,6472,2026-02-24,delivered,Recipient confirmed receipt on retry,Signed receipt recorded
+49,681,6631,6598,2026-03-10,failed,Recipient unavailable at delivery address,Successful retry on the same trip
+50,681,6631,6598,2026-03-10,delivered,Recipient confirmed receipt on retry,Signed receipt recorded
+51,726,7087,7053,2026-05-01,failed,Recipient unavailable at delivery address,Successful retry on the same trip
+52,726,7087,7053,2026-05-01,delivered,Recipient confirmed receipt on retry,Signed receipt recorded
+53,738,7208,7174,2026-05-15,failed,Recipient unavailable at delivery address,Successful retry on the same trip
+54,738,7208,7174,2026-05-15,delivered,Recipient confirmed receipt on retry,Signed receipt recorded
+55,742,7258,7224,2026-05-20,failed,Recipient unavailable at delivery address,Successful retry on the same trip
+56,742,7258,7224,2026-05-20,delivered,Recipient confirmed receipt on retry,Signed receipt recorded
+57,758,7412,7377,2026-06-08,failed,Recipient unavailable at delivery address,Successful retry on the same trip
+58,758,7412,7377,2026-06-08,delivered,Recipient confirmed receipt on retry,Signed receipt recorded
+59,816,7991,7953,2026-08-14,failed,Recipient unavailable at delivery address,Successful retry on the same trip
+60,816,7991,7953,2026-08-14,delivered,Recipient confirmed receipt on retry,Signed receipt recorded
+61,865,8468,8428,2026-10-10,failed,Recipient unavailable at delivery address,Successful retry on the same trip
+62,865,8468,8428,2026-10-10,delivered,Recipient confirmed receipt on retry,Signed receipt recorded
+63,867,8484,8444,2026-10-13,failed,Recipient unavailable at delivery address,Successful retry on the same trip
+64,867,8484,8444,2026-10-13,delivered,Recipient confirmed receipt on retry,Signed receipt recorded
+65,879,8603,8561,2026-10-27,failed,Recipient unavailable at delivery address,Successful retry on the same trip
+66,879,8603,8561,2026-10-27,delivered,Recipient confirmed receipt on retry,Signed receipt recorded
+67,887,8688,8646,2026-11-05,failed,Recipient unavailable at delivery address,Awaiting customer contact

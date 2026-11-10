@@ -18,7 +18,7 @@ class ProductForecastService
     {
         $productId = $forecast->product_id;
         $horizon = $forecast->horizon_days;
-        $today = CarbonImmutable::today('Africa/Nairobi');
+        $today = CarbonImmutable::today(config('app.business_timezone'));
         $windowStart = CarbonImmutable::parse($forecast->origin_date)->addDay();
         $windowEnd = CarbonImmutable::parse($forecast->origin_date)->addDays($horizon);
         $eligibleStock = (int) DB::table('production_batches')
@@ -43,7 +43,7 @@ class ProductForecastService
         $recordedCases = (int) DB::table('sales_order_items')
             ->join('sales_orders', 'sales_order_items.sales_order_id', '=', 'sales_orders.id')
             ->where('sales_order_items.product_id', $productId)
-            ->whereIn('sales_orders.status', ['confirmed', 'dispatched', 'delivered', 'invoiced', 'paid'])
+            ->whereIn('sales_orders.status', ['confirmed', 'dispatched', 'delivery_failed', 'delivered', 'invoiced', 'paid'])
             ->whereDate('sales_orders.ordered_on', '>=', $windowStart->toDateString())
             ->whereDate('sales_orders.ordered_on', '<=', min($today->toDateString(), $windowEnd->toDateString()))
             ->sum('sales_order_items.cases_ordered');
@@ -115,7 +115,7 @@ class ProductForecastService
         $rows = DB::table('sales_order_items')
             ->join('sales_orders', 'sales_order_items.sales_order_id', '=', 'sales_orders.id')
             ->where('sales_order_items.product_id', $product->id)
-            ->whereIn('sales_orders.status', ['confirmed', 'dispatched', 'delivered', 'invoiced', 'paid'])
+            ->whereIn('sales_orders.status', ['confirmed', 'dispatched', 'delivery_failed', 'delivered', 'invoiced', 'paid'])
             ->selectRaw('DATE(sales_orders.ordered_on) order_day, SUM(sales_order_items.cases_ordered) cases')
             ->groupByRaw('DATE(sales_orders.ordered_on)')
             ->orderBy('order_day')
@@ -126,16 +126,16 @@ class ProductForecastService
         $originTypes = DB::table('sales_order_items')
             ->join('sales_orders', 'sales_order_items.sales_order_id', '=', 'sales_orders.id')
             ->where('sales_order_items.product_id', $product->id)
-            ->whereIn('sales_orders.status', ['confirmed', 'dispatched', 'delivered', 'invoiced', 'paid'])
+            ->whereIn('sales_orders.status', ['confirmed', 'dispatched', 'delivery_failed', 'delivered', 'invoiced', 'paid'])
             ->distinct()->pluck('sales_orders.data_origin')->all();
         $dataOrigin = count($originTypes) === 1 ? $originTypes[0] : 'mixed';
-        $lastOrderDate = CarbonImmutable::parse($rows->last()->order_day, 'Africa/Nairobi')->startOfDay();
-        if (! $historical && $lastOrderDate->diffInDays(CarbonImmutable::today('Africa/Nairobi')) > 14) {
+        $lastOrderDate = CarbonImmutable::parse($rows->last()->order_day, config('app.business_timezone'))->startOfDay();
+        if (! $historical && $lastOrderDate->diffInDays(CarbonImmutable::today(config('app.business_timezone'))) > 14) {
             return ['available' => false, 'reason' => 'The latest order is too old for a current forecast. Use the historical demonstration or record recent genuine orders.'];
         }
         $byDate = $rows->pluck('cases', 'order_day');
-        $date = CarbonImmutable::parse($rows->first()->order_day, 'Africa/Nairobi')->startOfDay();
-        $today = CarbonImmutable::today('Africa/Nairobi');
+        $date = CarbonImmutable::parse($rows->first()->order_day, config('app.business_timezone'))->startOfDay();
+        $today = CarbonImmutable::today(config('app.business_timezone'));
         $asOfDate = $historical ? $lastOrderDate : $today;
         $daysSinceSunday = $asOfDate->dayOfWeek === 0 && ! $historical ? 7 : $asOfDate->dayOfWeek;
         $originDate = $asOfDate->subDays($daysSinceSunday);
@@ -145,7 +145,7 @@ class ProductForecastService
         if (! $historical) {
             $recentStart = $originDate->subDays(13)->max($date);
             $recordedDays = DB::table('sales_orders')
-                ->whereIn('status', ['confirmed', 'dispatched', 'delivered', 'invoiced', 'paid'])
+                ->whereIn('status', ['confirmed', 'dispatched', 'delivery_failed', 'delivered', 'invoiced', 'paid'])
                 ->whereDate('ordered_on', '>=', $recentStart->toDateString())
                 ->whereDate('ordered_on', '<=', $originDate->toDateString())
                 ->distinct()->pluck('ordered_on')->map(fn ($day) => CarbonImmutable::parse($day)->toDateString())->flip();
@@ -154,6 +154,9 @@ class ProductForecastService
                 ->whereDate('order_day', '<=', $originDate->toDateString())
                 ->pluck('order_day')->map(fn ($day) => CarbonImmutable::parse($day)->toDateString())->flip();
             for ($reviewDay = $recentStart; $reviewDay->lte($originDate); $reviewDay = $reviewDay->addDay()) {
+                if ($reviewDay->isSunday()) {
+                    continue;
+                }
                 $dayKey = $reviewDay->toDateString();
                 if (! $recordedDays->has($dayKey) && ! $closedDays->has($dayKey)) {
                     return ['available' => false, 'reason' => 'Sales records for '.$reviewDay->format('d M Y').' are not closed. Record orders or confirm that there were no orders that day.'];
@@ -205,10 +208,11 @@ class ProductForecastService
                 continue;
             }
             foreach ($report['methods'] as $method => $values) {
-                ProductForecast::updateOrCreate(
-                    ['product_id' => $product->id, 'origin_date' => $originDate, 'horizon_days' => (int) $horizon, 'method' => $method],
-                    ['predicted_cases' => $values['predicted_cases'], 'mae_cases' => $values['mae_cases'], 'bias_cases' => $values['bias_cases'], 'evaluation' => ['backtest_points' => $values['backtest_points'], 'selected' => $method === $report['best_method'], 'mode' => $historical ? 'historical_demo' : 'current', 'source' => 'recorded packaged-water orders', 'data_origin' => $dataOrigin, 'correction_cases' => $values['correction_cases'] ?? 0, 'week_start' => $report['week_start'] ?? null, 'week_end' => $report['week_end'] ?? null]]
-                );
+                ProductForecast::create([
+                    'product_id' => $product->id, 'origin_date' => $originDate, 'horizon_days' => (int) $horizon, 'method' => $method,
+                    'predicted_cases' => $values['predicted_cases'], 'mae_cases' => $values['mae_cases'], 'bias_cases' => $values['bias_cases'],
+                    'evaluation' => ['backtest_points' => $values['backtest_points'], 'selected' => $method === $report['best_method'], 'mode' => $historical ? 'historical_demo' : 'current', 'source' => 'recorded packaged-water orders', 'data_origin' => $dataOrigin, 'correction_cases' => $values['correction_cases'] ?? 0, 'week_start' => $report['week_start'] ?? null, 'week_end' => $report['week_end'] ?? null],
+                ]);
             }
         }
     }

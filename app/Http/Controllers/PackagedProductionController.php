@@ -10,6 +10,7 @@ use App\Models\ProductManufacturingPolicy;
 use App\Models\User;
 use App\Services\AuditTrail;
 use App\Services\PackagedWaterService;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -61,7 +62,7 @@ class PackagedProductionController extends Controller
     {
         abort_unless($product->is_active, 404);
         $data = $request->validate([
-            'effective_from' => ['required', 'date', 'after_or_equal:today', Rule::unique('product_manufacturing_policies', 'effective_from')->where('product_id', $product->id)],
+            'effective_from' => ['required', 'date', 'after_or_equal:'.CarbonImmutable::today(config('app.business_timezone'))->toDateString(), Rule::unique('product_manufacturing_policies', 'effective_from')->where('product_id', $product->id)],
             'shelf_life_days' => ['required', 'integer', 'between:1,3650'],
             'shelf_life_evidence' => ['required', 'string', 'max:500'],
             'water_treatment_per_case' => ['required', 'numeric', 'between:0,9999999.99'],
@@ -87,7 +88,7 @@ class PackagedProductionController extends Controller
     {
         $data = $request->validate([
             'product_id' => ['required', Rule::exists('products', 'id')->where('is_active', true)],
-            'produced_on' => ['required', 'date', 'before_or_equal:today'],
+            'produced_on' => ['required', 'date', 'before_or_equal:'.CarbonImmutable::today(config('app.business_timezone'))->toDateString()],
             'cases_produced' => ['required', 'integer', 'between:1,10000'],
             'water_source_reference' => ['required', 'string', 'max:255'],
             'water_input_litres' => ['required', 'numeric', 'gt:0', 'decimal:0,2'],
@@ -109,7 +110,7 @@ class PackagedProductionController extends Controller
         $data = $request->validate([
             'quality_notes' => ['required', 'string', 'max:2000'],
             'rejected_cases' => ['nullable', 'integer', 'min:0'],
-            'quality_tested_on' => ['required', 'date', 'after_or_equal:'.$batch->produced_on->toDateString(), 'before_or_equal:today'],
+            'quality_tested_on' => ['required', 'date', 'after_or_equal:'.$batch->produced_on->toDateString(), 'before_or_equal:'.CarbonImmutable::today(config('app.business_timezone'))->toDateString()],
             'quality_evidence_reference' => ['required', 'string', 'max:255'],
             'quality_ph' => ['required', 'numeric', 'between:0,14', 'decimal:0,2'],
             'quality_turbidity_ntu' => ['required', 'numeric', 'min:0', 'decimal:0,3'],
