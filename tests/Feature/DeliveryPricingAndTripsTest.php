@@ -55,6 +55,32 @@ class DeliveryPricingAndTripsTest extends TestCase
         $this->assertNull($customer->fresh()->delivery_area_id);
     }
 
+    public function test_delivery_fee_page_hides_status_and_reason_and_saves_fee_without_reason(): void
+    {
+        $manager = $this->user('manager');
+        $zone = $this->area('Westlands')->zone;
+
+        $this->actingAs($manager)->get(route('packaged.delivery-zones.index'))->assertOk()
+            ->assertSee('Delivery fee history')
+            ->assertSee('data-bs-target="#deliveryFeeHistory"', false)
+            ->assertDontSee('<th>Status</th>', false)
+            ->assertDontSee('Reason for change')
+            ->assertDontSee('Fixed fees cover one customer order on a delivery trip.');
+
+        $this->actingAs($manager)->post(route('packaged.delivery-zones.update', $zone), [
+            'fixed_fee' => '1350.00',
+            'is_active' => (int) $zone->is_active,
+        ])->assertRedirect()->assertSessionHasNoErrors();
+
+        $this->assertSame(1350.0, (float) $zone->fresh()->fixed_fee);
+        $this->assertDatabaseHas('delivery_zone_fee_changes', [
+            'delivery_zone_id' => $zone->id,
+            'previous_fee' => 1200,
+            'new_fee' => 1350,
+            'reason' => null,
+        ]);
+    }
+
     public function test_order_fee_is_calculated_by_the_server_once_and_kept_after_a_zone_change(): void
     {
         $manager = $this->user('manager');

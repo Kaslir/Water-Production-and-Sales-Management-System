@@ -26,7 +26,7 @@ class DeliveryZoneController extends Controller
         $data = $request->validate([
             'fixed_fee' => ['required', 'numeric', 'gt:0', 'decimal:0,2'],
             'is_active' => ['required', 'boolean'],
-            'reason' => ['required', 'string', 'max:500'],
+            'reason' => ['nullable', 'string', 'max:500'],
         ]);
         DB::transaction(function () use ($zone, $data, $request, $auditTrail): void {
             $zone = DeliveryZone::query()->lockForUpdate()->findOrFail($zone->id);
@@ -38,13 +38,13 @@ class DeliveryZoneController extends Controller
                     'delivery_zone_id' => $zone->id,
                     'previous_fee' => $oldFee,
                     'new_fee' => $newFee,
-                    'reason' => $data['reason'],
+                    'reason' => $data['reason'] ?? null,
                     'changed_by' => $request->user()->user_id,
                     'created_at' => now(),
                 ]);
             }
             $zone->update(['fixed_fee' => $newFee, 'is_active' => (bool) $data['is_active']]);
-            $auditTrail->record('delivery_zone.updated', $zone, $request->user()->user_id, ['fixed_fee' => $oldFee, 'is_active' => $wasActive], ['fixed_fee' => $newFee, 'is_active' => $zone->is_active], $data['reason']);
+            $auditTrail->record('delivery_zone.updated', $zone, $request->user()->user_id, ['fixed_fee' => $oldFee, 'is_active' => $wasActive], ['fixed_fee' => $newFee, 'is_active' => $zone->is_active], $data['reason'] ?? null);
         });
 
         return back()->with('status', 'Delivery zone updated. Existing orders keep their original delivery fee.');
