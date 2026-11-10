@@ -7,7 +7,6 @@ use App\Models\DispatchLine;
 use App\Models\Product;
 use App\Models\ProductionBatch;
 use App\Models\ProductManufacturingPolicy;
-use App\Models\User;
 use App\Services\AuditTrail;
 use App\Services\PackagedWaterService;
 use Carbon\CarbonImmutable;
@@ -54,7 +53,6 @@ class PackagedProductionController extends Controller
             'products' => $products,
             'policies' => $policies,
             'selectedProduct' => $products->firstWhere('id', (int) $request->query('product')),
-            'approvers' => User::query()->whereIn('user_id', $policies->flatten()->pluck('approved_by')->filter()->unique())->pluck('name', 'user_id'),
         ]);
     }
 
@@ -64,7 +62,6 @@ class PackagedProductionController extends Controller
         $data = $request->validate([
             'effective_from' => ['required', 'date', 'after_or_equal:'.CarbonImmutable::today(config('app.business_timezone'))->toDateString(), Rule::unique('product_manufacturing_policies', 'effective_from')->where('product_id', $product->id)],
             'shelf_life_days' => ['required', 'integer', 'between:1,3650'],
-            'shelf_life_evidence' => ['required', 'string', 'max:500'],
             'water_treatment_per_case' => ['required', 'numeric', 'between:0,9999999.99'],
             'bottle_per_case' => ['required', 'numeric', 'between:0,9999999.99'],
             'inbound_transport_per_case' => ['required', 'numeric', 'between:0,9999999.99'],
@@ -78,7 +75,6 @@ class PackagedProductionController extends Controller
             'product_id' => $product->id,
             'effective_from' => $policy->effective_from->toDateString(),
             'shelf_life_days' => $policy->shelf_life_days,
-            'shelf_life_evidence' => $policy->shelf_life_evidence,
         ]);
 
         return redirect()->route('packaged.manufacturing-settings.index')->with('status', 'Product manufacturing settings approved. New batches will use them from the effective date.');

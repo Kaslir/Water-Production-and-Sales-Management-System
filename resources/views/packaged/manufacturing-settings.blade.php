@@ -106,9 +106,7 @@
                         <div class="col-sm-4"><div class="settings-label">Effective from</div><div class="settings-value">{{ $currentPolicy->effective_from->format('d M Y') }}</div></div>
                         <div class="col-sm-4"><div class="settings-label">Shelf life</div><div class="settings-value">{{ number_format($currentPolicy->shelf_life_days) }} days</div></div>
                         <div class="col-sm-4"><div class="settings-label">Estimated cost / case</div><div class="settings-value">KSh {{ number_format($currentTotal, 2) }}</div></div>
-                        <div class="col-12"><div class="settings-label">Shelf-life evidence or reference</div><div class="settings-value fw-normal text-break">{{ $currentPolicy->shelf_life_evidence }}</div></div>
                     </div>
-                    <div class="small text-secondary mb-2">Approved by {{ $approvers->get($currentPolicy->approved_by, 'User record unavailable') }}{{ $currentPolicy->created_at ? ' on '.$currentPolicy->created_at->format('d M Y, H:i') : '' }}.</div>
                     <details><summary class="small fw-semibold">View current cost components</summary>
                         <div class="row g-2 mt-1">
                             @foreach ($costFields as $field => [$label, $description])
@@ -135,12 +133,10 @@
                                     <div><strong>Effective {{ $policy->effective_from->format('d M Y') }}</strong>
                                         <span class="badge {{ $policy->effective_from->toDateString() > $todayDate ? 'text-bg-info' : 'text-bg-success' }} ms-2">{{ $policy->effective_from->toDateString() > $todayDate ? 'Scheduled' : 'Approved' }}</span>
                                     </div>
-                                    <div class="small text-secondary">Approved by {{ $approvers->get($policy->approved_by, 'User record unavailable') }}{{ $policy->created_at ? ' · '.$policy->created_at->format('d M Y, H:i') : '' }}</div>
                                 </div>
                                 <div class="row g-2 small mb-2">
                                     <div class="col-sm-4"><span class="text-secondary">Shelf life:</span> {{ number_format($policy->shelf_life_days) }} days</div>
                                     <div class="col-sm-4"><span class="text-secondary">Total cost / case:</span> KSh {{ number_format($policyTotal, 2) }}</div>
-                                    <div class="col-12 text-break"><span class="text-secondary">Evidence:</span> {{ $policy->shelf_life_evidence }}</div>
                                 </div>
                                 <div class="row g-2 border-top pt-2">
                                     @foreach ($costFields as $field => [$label, $description])
@@ -161,23 +157,17 @@
                 <fieldset class="border rounded p-3 mb-3">
                     <legend class="float-none w-auto px-2 fs-6 fw-semibold mb-0">Shelf-Life Settings</legend>
                     <div class="row g-3">
-                        <div class="col-md-4">
+                        <div class="col-md-6">
                             <label class="form-label" for="effective_from">Effective from</label>
                             <input class="form-control @error('effective_from') is-invalid @enderror" id="effective_from" type="date" name="effective_from" min="{{ $todayDate }}" value="{{ old('effective_from', $defaultEffectiveDate) }}" required aria-describedby="effectiveHelp">
                             <div id="effectiveHelp" class="form-text">Today or a future date. Each product can have only one policy per effective date.</div>
                             @error('effective_from')<div class="invalid-feedback">{{ $message }}</div>@enderror
                         </div>
-                        <div class="col-md-4">
+                        <div class="col-md-6">
                             <label class="form-label" for="shelf_life_days">Shelf life (days)</label>
                             <input class="form-control @error('shelf_life_days') is-invalid @enderror" id="shelf_life_days" type="number" min="1" max="3650" step="1" name="shelf_life_days" value="{{ old('shelf_life_days', $currentPolicy?->shelf_life_days ?? $nextPolicy?->shelf_life_days) }}" required aria-describedby="shelfLifeHelp">
                             <div id="shelfLifeHelp" class="form-text">Used to calculate each new batch's expiry from its production date.</div>
                             @error('shelf_life_days')<div class="invalid-feedback">{{ $message }}</div>@enderror
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label" for="shelf_life_evidence">Shelf-life evidence or reference</label>
-                            <input class="form-control @error('shelf_life_evidence') is-invalid @enderror" id="shelf_life_evidence" name="shelf_life_evidence" maxlength="500" value="{{ old('shelf_life_evidence', $currentPolicy?->shelf_life_evidence ?? $nextPolicy?->shelf_life_evidence) }}" required aria-describedby="evidenceHelp">
-                            <div id="evidenceHelp" class="form-text">Enter the actual approved study, specification or document reference. Do not invent a certification.</div>
-                            @error('shelf_life_evidence')<div class="invalid-feedback">{{ $message }}</div>@enderror
                         </div>
                     </div>
                 </fieldset>

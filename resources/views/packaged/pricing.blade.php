@@ -27,7 +27,9 @@
                     <thead><tr><th scope="col">Product</th><th scope="col">Previous price</th><th scope="col">New price</th><th scope="col">Changed on</th><th scope="col">Changed by</th><th scope="col">Reason</th></tr></thead>
                     <tbody>
                         @foreach ($priceHistory as $change)
-                            @php($changedProduct = $products->firstWhere('id', $change->subject_id))
+                            @php
+                                $changedProduct = $products->firstWhere('id', $change->subject_id);
+                            @endphp
                             <tr>
                                 <th scope="row">{{ $changedProduct?->name ?? 'Product record unavailable' }}</th>
                                 <td>KSh {{ number_format((float) ($change->before_values['price'] ?? 0), 2) }}</td>

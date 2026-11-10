@@ -24,7 +24,6 @@ class BatchManufacturingSettingsTest extends TestCase
         return [
             'effective_from' => today()->toDateString(),
             'shelf_life_days' => 120,
-            'shelf_life_evidence' => 'Approved product shelf-life study QL-2026-01',
             'water_treatment_per_case' => 10,
             'bottle_per_case' => 20,
             'inbound_transport_per_case' => 3,
@@ -145,6 +144,8 @@ class BatchManufacturingSettingsTest extends TestCase
             ->assertSee('KSh 50.00')
             ->assertSee('View Settings History (2)')
             ->assertSee('150 days')
-            ->assertSee('Approved by manager');
+            ->assertDontSee('Supporting document reference')
+            ->assertDontSee('Shelf-life evidence or reference')
+            ->assertDontSee('Approved by manager');
     }
 }
