@@ -1,7 +1,6 @@
 @extends('layouts.app')
 @section('page-title', 'New customer order')
 @section('content')
-@php($canAdjustPrices = auth()->user()->hasRole('administrator', 'manager'))
 <form method="post" action="{{ route('packaged.orders.store') }}">
     @csrf
     <section class="panel mb-3" aria-labelledby="customer-delivery-heading">
@@ -16,20 +15,22 @@
         </div>
     </section>
 
-    <section class="panel mb-3" aria-labelledby="products-heading">
+    <div class="row g-3 align-items-start">
+    <div class="col-xl-8">
+    <section class="panel h-100" aria-labelledby="products-heading">
         <h2 class="h5" id="products-heading">Products &amp; Pricing</h2><p class="small text-muted">Enter cases for at least one product. Leave other quantities at zero. Listed prices are taken from Products &amp; Pricing.</p>
-        <div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th>Product</th><th>Quantity in cases</th><th>Selling price per case (KSh)</th>@if($canAdjustPrices)<th>Price action</th>@endif</tr></thead><tbody>
+        <div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th>Product</th><th>Quantity in cases</th><th>Selling price per case (KSh)</th></tr></thead><tbody>
             @foreach($products as $index => $product)
-            <tr data-product-row><td><label class="fw-semibold" for="cases-{{ $product->id }}">{{ $product->name }}</label><input type="hidden" name="items[{{ $index }}][product_id]" value="{{ $product->id }}"></td><td><input class="form-control" id="cases-{{ $product->id }}" type="number" name="items[{{ $index }}][cases_ordered]" min="0" value="{{ old('items.'.$index.'.cases_ordered', 0) }}" aria-label="Cases for {{ $product->name }}"></td><td><input class="form-control" id="price-{{ $product->id }}" type="number" name="items[{{ $index }}][price_per_case]" step="0.01" min="0.01" data-listed-price="{{ $product->default_price_per_case }}" value="{{ old('items.'.$index.'.price_per_case', $product->default_price_per_case) }}" aria-label="Selling price per case for {{ $product->name }}" readonly></td>@if($canAdjustPrices)<td><button class="btn btn-outline-brand btn-sm w-auto mt-0 price-override-button" type="button" data-price-id="price-{{ $product->id }}" aria-controls="price-{{ $product->id }}">Override Price</button></td>@endif</tr>
+            <tr data-product-row><td><label class="fw-semibold" for="cases-{{ $product->id }}">{{ $product->name }}</label><input type="hidden" name="items[{{ $index }}][product_id]" value="{{ $product->id }}"></td><td><input class="form-control" id="cases-{{ $product->id }}" type="number" name="items[{{ $index }}][cases_ordered]" min="0" value="{{ old('items.'.$index.'.cases_ordered', 0) }}" aria-label="Cases for {{ $product->name }}"></td><td><input class="form-control" id="price-{{ $product->id }}" type="number" name="items[{{ $index }}][price_per_case]" step="0.01" min="0.01" value="{{ $product->default_price_per_case }}" aria-label="Selling price per case for {{ $product->name }}" readonly></td></tr>
             @endforeach
         </tbody></table></div>
-        @if($canAdjustPrices)
-        <details class="border rounded p-3 mt-3" id="price-adjustments" @if(old('discount', 0) > 0 || old('price_override_reason')) open @endif><summary class="fw-semibold">Price Adjustments (optional)</summary><div class="row g-3 mt-1"><div class="col-md-4"><label class="form-label" for="order-discount">Discount (KSh)</label><input class="form-control" id="order-discount" type="number" name="discount" step="0.01" min="0" value="{{ old('discount', 0) }}"></div><div class="col-md-8"><label class="form-label" for="price-reason">Reason for a changed price or discount</label><input class="form-control" id="price-reason" name="price_override_reason" maxlength="500" value="{{ old('price_override_reason') }}"><div class="tiny mt-1">Required when a listed price is overridden or a discount is entered.</div></div></div></details>
-        @else<input type="hidden" name="discount" value="0">@endif
+        <input type="hidden" name="discount" value="0">
     </section>
-
-    <section class="panel mb-3" aria-labelledby="summary-heading"><h2 class="h5 mb-3" id="summary-heading">Order Summary</h2><div class="d-flex justify-content-between border-bottom py-2"><span>Product subtotal</span><strong id="order-subtotal">KSh 0.00</strong></div><div class="d-flex justify-content-between border-bottom py-2"><span>Discount</span><strong id="order-discount-display">KSh 0.00</strong></div><div class="d-flex justify-content-between border-bottom py-2"><span>Delivery fee (once per order)</span><strong id="order-fee">KSh 0.00</strong></div><div class="d-flex justify-content-between align-items-center py-3 fs-5"><span>Final amount payable</span><strong id="order-total">KSh 0.00</strong></div><p class="tiny mb-0">The server recalculates the final amount when you save the draft order. Saving a draft does not deduct stock.</p></section>
-    <button class="btn btn-brand">Save draft order</button>
+    </div>
+    <div class="col-xl-4">
+    <section class="panel" aria-labelledby="summary-heading"><h2 class="h5 mb-3" id="summary-heading">Order Summary</h2><div class="d-flex justify-content-between border-bottom py-2 gap-2"><span>Product subtotal</span><strong id="order-subtotal">KSh 0.00</strong></div><div class="d-flex justify-content-between border-bottom py-2 gap-2"><span>Delivery fee (once per order)</span><strong id="order-fee">KSh 0.00</strong></div><div class="d-flex justify-content-between align-items-center py-3 fs-5 gap-2"><span>Final amount payable</span><strong id="order-total" class="text-nowrap">KSh 0.00</strong></div><p class="tiny">The server recalculates the final amount when you save the draft order. Saving a draft does not deduct stock.</p><button class="btn btn-brand">Save draft order</button></section>
+    </div>
+    </div>
 </form>
 <script>
 document.addEventListener('DOMContentLoaded', () => {
@@ -37,7 +38,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const customer = document.getElementById('customer-id');
     const area = document.getElementById('delivery-area');
     const address = document.getElementById('delivery-address');
-    const discount = document.getElementById('order-discount');
     const money = value => 'KSh ' + value.toLocaleString('en-KE', {minimumFractionDigits: 2, maximumFractionDigits: 2});
     const refresh = () => {
         const selected = area.selectedOptions[0];
@@ -46,12 +46,10 @@ document.addEventListener('DOMContentLoaded', () => {
         form.querySelectorAll('[data-product-row]').forEach(row => {
             subtotal += Number(row.querySelector('input[name$="[cases_ordered]"]').value || 0) * Number(row.querySelector('input[name$="[price_per_case]"]').value || 0);
         });
-        const reduction = Number(discount?.value || 0);
         document.getElementById('delivery-fee-display').textContent = selected?.dataset.zone ? 'Zone ' + selected.dataset.zone + ' · ' + money(fee) : 'Select a delivery area';
         document.getElementById('order-subtotal').textContent = money(subtotal);
-        document.getElementById('order-discount-display').textContent = money(reduction);
         document.getElementById('order-fee').textContent = money(fee);
-        document.getElementById('order-total').textContent = money(Math.max(0, subtotal - reduction + fee));
+        document.getElementById('order-total').textContent = money(subtotal + fee);
     };
     customer.addEventListener('change', () => {
         const selected = customer.selectedOptions[0];
@@ -59,14 +57,6 @@ document.addEventListener('DOMContentLoaded', () => {
         address.value = selected?.dataset.address || '';
         refresh();
     });
-    form.querySelectorAll('.price-override-button').forEach(button => button.addEventListener('click', () => {
-        const price = document.getElementById(button.dataset.priceId);
-        price.readOnly = !price.readOnly;
-        button.textContent = price.readOnly ? 'Override Price' : 'Use listed price';
-        if (price.readOnly) { price.value = price.dataset.listedPrice; }
-        else { document.getElementById('price-adjustments').open = true; price.focus(); }
-        refresh();
-    }));
     form.addEventListener('input', refresh);
     area.addEventListener('change', refresh);
     if (!area.value && customer.value) { customer.dispatchEvent(new Event('change')); }

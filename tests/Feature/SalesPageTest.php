@@ -85,9 +85,11 @@ class SalesPageTest extends TestCase
         $product = Product::where('sku', 'WATER-500ML')->firstOrFail();
         $product->update(['default_price_per_case' => 620]);
         $this->actingAs($manager)->get(route('packaged.orders.create'))->assertOk()->assertSee('Customer &amp; Delivery Details', false)
-            ->assertSee('Products &amp; Pricing', false)->assertSee('Order Summary')->assertSee('Override Price')
-            ->assertSee('value="620.00"', false)->assertSee('readonly', false);
-        $this->actingAs($sales)->get(route('packaged.orders.create'))->assertOk()->assertDontSee('>Override Price</button>', false);
+            ->assertSee('Products &amp; Pricing', false)->assertSee('Order Summary')
+            ->assertSee('col-xl-8', false)->assertSee('col-xl-4', false)
+            ->assertSee('value="620.00"', false)->assertSee('readonly', false)
+            ->assertDontSee('Price action')->assertDontSee('Price Adjustments')->assertDontSee('Override Price');
+        $this->actingAs($sales)->get(route('packaged.orders.create'))->assertOk()->assertDontSee('Override Price');
 
         $input = ['customer_id' => $customer->customer_id, 'delivery_area_id' => $area->id, 'delivery_address' => 'Westlands office', 'requested_delivery_on' => today()->toDateString(), 'items' => [['product_id' => $product->id, 'cases_ordered' => 2, 'price_per_case' => 700]], 'discount' => 100];
         $this->actingAs($sales)->post(route('packaged.orders.store'), $input)->assertSessionHasErrors('price_override_reason');
