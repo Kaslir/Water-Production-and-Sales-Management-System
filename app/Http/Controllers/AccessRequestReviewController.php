@@ -26,7 +26,7 @@ class AccessRequestReviewController extends Controller
 
     public function approve(Request $request, AccessRequest $accessRequest, AuditTrail $auditTrail): RedirectResponse
     {
-        $data = $request->validate(['role' => ['required', Rule::in(User::ROLES)]]);
+        $data = $request->validate(['role' => ['required', Rule::in(User::ASSIGNABLE_ROLES)]]);
         DB::transaction(function () use ($accessRequest, $request, $auditTrail, $data): void {
             $accessRequest = AccessRequest::whereKey($accessRequest->id)->lockForUpdate()->firstOrFail();
             abort_unless($accessRequest->status === 'pending' && $accessRequest->email_verified_at, 422, 'This request must be pending with a verified email.');

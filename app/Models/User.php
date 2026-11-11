@@ -29,7 +29,9 @@ class User extends Authenticatable
 
     public const ROLES = ['administrator', 'manager', 'production_staff', 'inventory_staff', 'distribution_staff', 'sales_staff', 'auditor'];
 
-    public const EMPLOYEE_ROLES = ['administrator', 'manager', 'production_staff', 'inventory_staff', 'distribution_staff', 'sales_staff'];
+    public const EMPLOYEE_ROLES = ['administrator', 'manager', 'production_staff', 'distribution_staff', 'sales_staff'];
+
+    public const ASSIGNABLE_ROLES = ['administrator', 'manager', 'production_staff', 'distribution_staff', 'sales_staff', 'auditor'];
 
     public function employeeInvitations(): HasMany
     {

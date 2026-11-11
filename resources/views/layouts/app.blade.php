@@ -31,10 +31,10 @@
     <div class="nav-heading">OPERATIONS</div>
     <nav aria-label="Operations">
         <a class="side-link {{ request()->routeIs('dashboard') ? 'active' : '' }}" href="{{ route('dashboard') }}"><i class="bi bi-grid-1x2"></i>Overview</a>
-        <a class="side-link {{ request()->routeIs('production.*') ? 'active' : '' }}" href="{{ route('production.index') }}"><i class="bi bi-droplet"></i>Production</a>
+        @if (auth()->user()->hasRole('administrator', 'manager', 'production_staff'))<a class="side-link {{ request()->routeIs('production.*') ? 'active' : '' }}" href="{{ route('production.index') }}"><i class="bi bi-droplet"></i>Production</a>@endif
         @if (auth()->user()->hasRole('administrator', 'manager', 'production_staff', 'inventory_staff'))<a class="side-link {{ request()->routeIs('inventory.*', 'packaged.batches.*') ? 'active' : '' }}" href="{{ route('inventory.index') }}"><i class="bi bi-box-seam"></i>Inventory</a>@endif
-        <a class="side-link {{ request()->routeIs('distribution.*') ? 'active' : '' }}" href="{{ route('distribution.index') }}"><i class="bi bi-truck"></i>Distribution</a>
-        <a class="side-link {{ request()->routeIs('sales.*') ? 'active' : '' }}" href="{{ route('sales.index') }}"><i class="bi bi-receipt"></i>Sales</a>
+        @if (auth()->user()->hasRole('administrator', 'manager', 'distribution_staff'))<a class="side-link {{ request()->routeIs('distribution.*') ? 'active' : '' }}" href="{{ route('distribution.index') }}"><i class="bi bi-truck"></i>Distribution</a>@endif
+        @if (auth()->user()->hasRole('administrator', 'manager', 'sales_staff'))<a class="side-link {{ request()->routeIs('sales.*') ? 'active' : '' }}" href="{{ route('sales.index') }}"><i class="bi bi-receipt"></i>Sales</a>@endif
         @if (auth()->user()->hasRole('administrator', 'manager', 'sales_staff', 'distribution_staff'))<a class="side-link {{ request()->routeIs('customers.*', 'packaged.orders.*') ? 'active' : '' }}" href="{{ route('customers.index') }}"><i class="bi bi-people"></i>Customers</a>@endif
     </nav>
     </div>

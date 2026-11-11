@@ -58,6 +58,35 @@ class OverviewDashboardTest extends TestCase
         return [$order, $invoice];
     }
 
+    public function test_operations_sidebar_matches_staff_module_permissions(): void
+    {
+        $allowedLinks = [
+            'production_staff' => ['production.index', 'inventory.index'],
+            'inventory_staff' => ['inventory.index'],
+            'distribution_staff' => ['distribution.index', 'customers.index'],
+            'sales_staff' => ['sales.index', 'customers.index'],
+            'auditor' => [],
+            'manager' => ['production.index', 'inventory.index', 'distribution.index', 'sales.index', 'customers.index'],
+            'administrator' => ['production.index', 'inventory.index', 'distribution.index', 'sales.index', 'customers.index'],
+        ];
+        $operations = ['production.index', 'inventory.index', 'distribution.index', 'sales.index', 'customers.index'];
+
+        foreach ($allowedLinks as $role => $visibleLinks) {
+            $response = $this->actingAs($this->user($role))->get(route('dashboard'))->assertOk();
+
+            foreach ($operations as $routeName) {
+                $link = 'href="'.route($routeName).'"';
+                if (in_array($routeName, $visibleLinks, true)) {
+                    $response->assertSee($link, false);
+                } else {
+                    $response->assertDontSee($link, false);
+                }
+            }
+
+            $response->assertSee('href="'.route('profile.show').'"', false);
+        }
+    }
+
     public function test_overview_uses_last_thirty_calendar_days_and_current_saleable_stock(): void
     {
         $this->travelTo(CarbonImmutable::parse('2026-11-05 12:00:00', 'Africa/Nairobi'));

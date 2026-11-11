@@ -122,11 +122,16 @@ class UserManagementController extends Controller
 
     private function validated(Request $request, ?User $user = null, bool $pending = false): array
     {
+        $assignableRoles = $pending ? User::EMPLOYEE_ROLES : User::ASSIGNABLE_ROLES;
+        if ($user?->role === 'inventory_staff') {
+            $assignableRoles[] = 'inventory_staff';
+        }
+
         return $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user?->user_id, 'user_id')],
             'phone_number' => ['nullable', 'regex:/^0[17]\d{8}$/'],
-            'role' => ['required', Rule::in($pending ? User::EMPLOYEE_ROLES : User::ROLES)],
+            'role' => ['required', Rule::in($assignableRoles)],
             'is_active' => [$pending ? 'prohibited' : 'required', 'boolean'],
             'password' => [$pending ? 'prohibited' : 'nullable', 'string', 'min:12', 'confirmed'],
         ]);

@@ -19,7 +19,7 @@ class AccessRequestFlowTest extends TestCase
         return User::create(['name' => 'Admin', 'email' => 'admin@example.test', 'password' => 'password-long-enough', 'role' => 'administrator', 'is_active' => true]);
     }
 
-    private function invite(User $administrator, string $role = 'inventory_staff'): array
+    private function invite(User $administrator, string $role = 'production_staff'): array
     {
         Mail::fake();
         $this->actingAs($administrator)->post(route('users.store'), [
@@ -68,15 +68,38 @@ class AccessRequestFlowTest extends TestCase
         $this->assertDatabaseCount('employee_invitations', 1);
     }
 
+    public function test_inventory_staff_cannot_be_newly_assigned_but_existing_accounts_can_be_edited(): void
+    {
+        $administrator = $this->administrator();
+        $legacy = User::create(['name' => 'Existing Inventory Staff', 'email' => 'inventory@example.test', 'phone_number' => '0712345678', 'password' => 'password-long-enough', 'role' => 'inventory_staff', 'is_active' => true]);
+        $sales = User::create(['name' => 'Sales Staff', 'email' => 'sales@example.test', 'phone_number' => '0712345679', 'password' => 'password-long-enough', 'role' => 'sales_staff', 'is_active' => true]);
+
+        $this->actingAs($administrator)->get(route('users.create'))->assertOk()->assertDontSee('value="inventory_staff"', false);
+        $this->post(route('users.store'), ['name' => 'New Inventory Staff', 'email' => 'new-inventory@example.test', 'phone_number' => '0712345680', 'role' => 'inventory_staff'])
+            ->assertSessionHasErrors('role');
+        $this->assertDatabaseMissing('users', ['email' => 'new-inventory@example.test']);
+
+        $this->get(route('users.edit', $sales))->assertOk()->assertDontSee('value="inventory_staff"', false);
+        $this->put(route('users.update', $sales), ['name' => $sales->name, 'email' => $sales->email, 'phone_number' => $sales->phone_number, 'role' => 'inventory_staff', 'is_active' => 1])
+            ->assertSessionHasErrors('role');
+        $this->assertSame('sales_staff', $sales->fresh()->role);
+
+        $this->get(route('users.edit', $legacy))->assertOk()->assertSee('value="inventory_staff"', false);
+        $this->put(route('users.update', $legacy), ['name' => 'Existing Inventory Employee', 'email' => $legacy->email, 'phone_number' => $legacy->phone_number, 'role' => 'inventory_staff', 'is_active' => 1])
+            ->assertRedirect(route('users.index'));
+        $this->assertSame('inventory_staff', $legacy->fresh()->role);
+        $this->assertSame('Existing Inventory Employee', $legacy->fresh()->name);
+    }
+
     public function test_invited_employee_activates_once_and_then_uses_the_normal_security_code_login(): void
     {
         [$employee, $invitation, $url, $token] = $this->invite($this->administrator());
         $this->post(route('logout'))->assertRedirect(route('login'));
         $this->post(route('login.submit'), ['email' => $employee->email, 'password' => 'chosen-password-long'])->assertSessionHasErrors('email');
-        $this->get($url)->assertOk()->assertSee('Activate Your Account')->assertSee($employee->name)->assertSee('Inventory Staff');
+        $this->get($url)->assertOk()->assertSee('Activate Your Account')->assertSee($employee->name)->assertSee('Production Staff');
         $this->post(route('invitations.accept', $invitation), ['token' => $token, 'role' => 'administrator', 'email' => 'changed@example.test', 'password' => 'chosen-password-long', 'password_confirmation' => 'chosen-password-long'])->assertRedirect(route('login'));
         $employee->refresh();
-        $this->assertSame('inventory_staff', $employee->role);
+        $this->assertSame('production_staff', $employee->role);
         $this->assertSame('employee@example.test', $employee->email);
         $this->assertTrue((bool) $employee->is_active);
         $this->assertNotNull($employee->activated_at);
