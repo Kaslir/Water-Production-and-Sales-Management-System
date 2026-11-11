@@ -147,11 +147,18 @@ class DeliveryPricingAndTripsTest extends TestCase
         $this->assertSame('dispatched', $trip->fresh()->status);
         $this->assertSame(10, $batch->fresh()->cases_on_hand);
         $this->actingAs($distribution)->post(route('packaged.trips.dispatch', $trip))->assertSessionHasErrors('trip');
+        $this->actingAs($distribution)->get(route('packaged.trips.show', $trip))->assertOk()
+            ->assertSee('Confirm delivery')
+            ->assertDontSee('Recipient name')
+            ->assertDontSee('Signed receipt reference');
         foreach ([$orderA, $orderB] as $index => $order) {
             $this->actingAs($distribution)->post(route('packaged.orders.dispatch', $order), ['delivery_reference' => 'PARTIAL-'.$index, 'cases' => 1])->assertSessionHasErrors('cases');
-            $this->actingAs($distribution)->post(route('packaged.orders.deliver', $order), ['received_by' => 'Customer', 'receipt_reference' => 'SIGNED-'.$index])->assertRedirect();
+            $receipt = $index === 0 ? [] : ['received_by' => 'Customer', 'receipt_reference' => 'SIGNED-'.$index];
+            $this->actingAs($distribution)->post(route('packaged.orders.deliver', $order), $receipt)->assertRedirect();
             $this->actingAs($manager)->post(route('packaged.orders.invoice', $order))->assertRedirect();
         }
+        $this->assertNull($orderA->fresh()->dispatch->received_by);
+        $this->assertNull($orderA->fresh()->dispatch->receipt_reference);
         $this->assertSame(10, $batch->fresh()->cases_on_hand);
         $this->assertSame('completed', $trip->fresh()->status);
         $this->actingAs($distribution)->get(route('distribution.index'))->assertOk()

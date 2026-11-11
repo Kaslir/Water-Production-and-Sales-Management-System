@@ -64,6 +64,7 @@ class PackagedWaterWorkflowTest extends TestCase
         $service->releaseBatch($early, $actor->user_id, 'Passed microbiological test');
         $service->releaseBatch($late, $actor->user_id, 'Passed microbiological test');
         $order = $service->createOrder(['customer_id' => $customer->customer_id, 'delivery_address' => 'Nairobi', 'discount' => 0, 'delivery_cost' => 30, 'items' => [['product_id' => $product->id, 'cases_ordered' => 12, 'price_per_case' => 100]]], $actor->user_id);
+        $this->assertSame(sprintf('SO-%07d', $order->id), $order->order_number);
         $service->confirmOrder($order, $actor->user_id);
         $this->assertSame(10, $early->fresh()->cases_reserved);
         $this->assertSame(2, $late->fresh()->cases_reserved);

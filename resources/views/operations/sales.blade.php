@@ -13,8 +13,6 @@
     <a class="btn btn-brand btn-sm" href="{{ route('packaged.orders.create') }}">Create Order</a>
 </div>
 
-<details class="panel mb-3" @if($errors->has('order_day')) open @endif><summary class="fw-semibold">Record Zero-Order Day</summary><p class="small text-muted mt-2">Use this only after checking that no accepted customer orders were recorded on the selected date. Forecasting treats a confirmed zero-order day differently from a missing day.</p><form class="d-flex gap-2 align-items-end flex-wrap" method="post" action="{{ route('packaged.orders.close-day') }}">@csrf<div><label class="form-label" for="zero-order-day">Date checked</label><input class="form-control" id="zero-order-day" name="order_day" type="date" max="{{ today()->toDateString() }}" value="{{ old('order_day') }}" required></div><button class="btn btn-outline-primary">Confirm zero orders</button></form></details>
-
 <form class="toolbar mb-3" method="get" action="{{ route('sales.index') }}">
     <input type="hidden" name="tab" value="{{ $tab }}">
     @if($tab === 'orders')

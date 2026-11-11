@@ -112,7 +112,7 @@ class SalesOrderController extends Controller
 
     public function deliver(Request $request, SalesOrder $order, PackagedWaterService $service): RedirectResponse
     {
-        $data = $request->validate(['received_by' => ['required', 'string', 'max:255'], 'receipt_reference' => ['required', 'string', 'max:255']]);
+        $data = $request->validate(['received_by' => ['nullable', 'string', 'max:255'], 'receipt_reference' => ['nullable', 'string', 'max:255']]);
         $service->deliverOrder($order, $request->user()->user_id, $data);
 
         return back()->with('status', 'Delivery confirmed.');

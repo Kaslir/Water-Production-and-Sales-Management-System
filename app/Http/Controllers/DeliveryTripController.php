@@ -118,7 +118,7 @@ class DeliveryTripController extends Controller
     {
         $service->dispatch($trip, $request->user()->user_id);
 
-        return redirect()->route('packaged.trips.show', $trip)->with('status', 'Trip dispatched. Reserved stock was deducted once for each order.');
+        return redirect()->route('packaged.trips.show', $trip)->with('status', 'Trip dispatched.');
     }
 
     public function show(DeliveryTrip $trip): View

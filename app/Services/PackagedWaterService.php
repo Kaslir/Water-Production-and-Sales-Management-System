@@ -218,7 +218,7 @@ class PackagedWaterService
             }
             $deliveryFee = $zone ? (float) $zone->fixed_fee : 0.0;
             $order = SalesOrder::create([
-                'order_number' => 'ORD-'.Str::upper(Str::random(12)),
+                'order_number' => 'SO-PENDING-'.Str::upper((string) Str::ulid()),
                 'customer_id' => $data['customer_id'],
                 'ordered_on' => CarbonImmutable::today(config('app.business_timezone')),
                 'requested_delivery_on' => $data['requested_delivery_on'] ?? CarbonImmutable::today(config('app.business_timezone')),
@@ -236,6 +236,7 @@ class PackagedWaterService
                 'notes' => $data['notes'] ?? null,
                 'created_by' => $actorId,
             ]);
+            $order->update(['order_number' => sprintf('SO-%07d', $order->id)]);
             foreach ($data['items'] as $item) {
                 $order->items()->create(['product_id' => $item['product_id'], 'cases_ordered' => $item['cases_ordered'], 'price_per_case' => $item['price_per_case'], 'line_total' => round($item['cases_ordered'] * $item['price_per_case'], 2)]);
             }
