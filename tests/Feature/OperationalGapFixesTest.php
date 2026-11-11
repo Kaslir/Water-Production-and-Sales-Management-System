@@ -110,7 +110,7 @@ class OperationalGapFixesTest extends TestCase
         $this->assertNull($staff->fresh()->email_verified_at);
     }
 
-    public function test_unreviewed_zero_order_days_stop_a_current_forecast(): void
+    public function test_completed_days_without_orders_are_zero_in_current_forecast_history(): void
     {
         $manager = $this->user('manager');
         $customer = Customer::create(['name' => 'Hotel', 'phone_number' => '0712345678']);
@@ -120,10 +120,13 @@ class OperationalGapFixesTest extends TestCase
             SalesOrderItem::create(['sales_order_id' => $order->id, 'product_id' => $product->id, 'cases_ordered' => 1, 'price_per_case' => 100, 'line_total' => 100]);
         }
 
-        $result = app(ProductForecastService::class)->run($product);
+        $prepared = (new \ReflectionMethod(ProductForecastService::class, 'prepare'))
+            ->invoke(app(ProductForecastService::class), $product, false);
 
-        $this->assertFalse($result['available']);
-        $this->assertStringContainsString('not closed', $result['reason']);
+        $this->assertTrue($prepared['available']);
+        $missingDay = today()->subDays(5);
+        $index = (int) \Carbon\CarbonImmutable::parse($prepared['start_date'])->diffInDays($missingDay);
+        $this->assertSame(0.0, $prepared['daily_cases'][$index]);
     }
 
     public function test_paid_return_creates_separate_customer_credit_then_a_traceable_refund(): void

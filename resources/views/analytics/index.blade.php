@@ -14,7 +14,7 @@
 <div class="row g-3 mb-3">
     <div class="col-md-3"><div class="metric"><span class="metric-label">CASES ORDERED</span><span class="metric-value">{{ number_format($totalCasesOrdered) }}</span></div></div>
     <div class="col-md-3"><div class="metric"><span class="metric-label">LITRES ORDERED</span><span class="metric-value">{{ number_format($totalLitresOrdered) }} L</span></div></div>
-    <div class="col-md-3"><div class="metric"><span class="metric-label">TOTAL INVOICED (WATER + DELIVERY)</span><span class="metric-value">KSh {{ number_format($totalInvoiced) }}</span></div></div>
+    <div class="col-md-3"><div class="metric"><span class="metric-label">TOTAL INVOICED</span><span class="metric-value">KSh {{ number_format($totalInvoiced) }}</span></div></div>
     <div class="col-md-3"><div class="metric"><span class="metric-label">AVERAGE CASES / RECORDED ORDER DAY</span><span class="metric-value">{{ number_format($averageCasesPerRecordedDay, 1) }}</span></div></div>
 </div>
 <div class="row g-3">

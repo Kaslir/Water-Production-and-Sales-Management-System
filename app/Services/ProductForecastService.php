@@ -142,29 +142,9 @@ class ProductForecastService
         if ($originDate->lt($date)) {
             return ['available' => false, 'reason' => 'A complete Sunday history is needed for weekly evaluation.'];
         }
-        if (! $historical) {
-            $recentStart = $originDate->subDays(13)->max($date);
-            $recordedDays = DB::table('sales_orders')
-                ->whereIn('status', ['confirmed', 'dispatched', 'delivery_failed', 'delivered', 'invoiced', 'paid'])
-                ->whereDate('ordered_on', '>=', $recentStart->toDateString())
-                ->whereDate('ordered_on', '<=', $originDate->toDateString())
-                ->distinct()->pluck('ordered_on')->map(fn ($day) => CarbonImmutable::parse($day)->toDateString())->flip();
-            $closedDays = DB::table('daily_order_closures')
-                ->whereDate('order_day', '>=', $recentStart->toDateString())
-                ->whereDate('order_day', '<=', $originDate->toDateString())
-                ->pluck('order_day')->map(fn ($day) => CarbonImmutable::parse($day)->toDateString())->flip();
-            for ($reviewDay = $recentStart; $reviewDay->lte($originDate); $reviewDay = $reviewDay->addDay()) {
-                if ($reviewDay->isSunday()) {
-                    continue;
-                }
-                $dayKey = $reviewDay->toDateString();
-                if (! $recordedDays->has($dayKey) && ! $closedDays->has($dayKey)) {
-                    return ['available' => false, 'reason' => 'Sales records for '.$reviewDay->format('d M Y').' are not closed. Record orders or confirm that there were no orders that day.'];
-                }
-            }
-        }
         $dailyCases = [];
         while ($date->lte($originDate)) {
+            // The origin is a completed Sunday, so dates without accepted orders contribute zero cases.
             $dailyCases[] = (float) ($byDate[$date->toDateString()] ?? 0);
             $date = $date->addDay();
         }
@@ -185,7 +165,7 @@ class ProductForecastService
             : null;
         $process = new Process([config('services.analytics.python'), base_path('analytics/product_forecast.py')], null, $processEnvironment);
         $process->setInput(json_encode($payload, JSON_THROW_ON_ERROR));
-        $process->setTimeout(120);
+        $process->setTimeout((int) config('services.analytics.timeout', 120));
         $process->run();
         if (! $process->isSuccessful()) {
             Log::error('Product forecasting process failed.', [

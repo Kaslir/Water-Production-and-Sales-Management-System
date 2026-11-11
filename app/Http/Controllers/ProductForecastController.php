@@ -79,13 +79,13 @@ class ProductForecastController extends Controller
     {
         $data = $request->validate(['mode' => ['required', 'in:current,historical_demo']]);
         $products = Product::query()->orderBy('volume_ml')->get();
-        set_time_limit(120);
+        set_time_limit(max(120, (int) config('services.analytics.timeout', 120) + 60));
         try {
             $results = $service->runAll($products, $data['mode'] === 'historical_demo');
         } catch (RuntimeException $exception) {
             throw ValidationException::withMessages(['forecast' => $exception->getMessage()]);
         }
-        $feedback = [];
+        $failures = [];
         $generated = 0;
         foreach ($products as $product) {
             $result = $results[$product->id] ?? [];
@@ -94,22 +94,21 @@ class ProductForecastController extends Controller
                 $generated++;
                 $auditTrail->record('forecast.generated', $product, $request->user()->user_id, [], ['horizons' => [7, 30]]);
             }
-            $feedback[] = [
-                'product' => $product->name,
-                'success' => $available,
-                'message' => $available ? 'Forecast updated.' : ($result['reason'] ?? $result['7']['reason'] ?? 'More dated product orders are needed.'),
-            ];
+            if (! $available) {
+                $failures[] = $product->name.': '.($result['reason'] ?? $result['7']['reason'] ?? 'More dated product orders are needed.');
+            }
         }
         if ($generated > 0 && $data['mode'] === 'current') {
             $alerts->scanIfDue(true);
         }
 
-        $response = redirect()->route('packaged.forecasts.index', ['tab' => 'forecasts'])
-            ->with('forecast_results', $feedback);
+        $response = redirect()->route('packaged.forecasts.index', ['tab' => 'forecasts']);
 
-        return $generated > 0
-            ? $response->with('status', $generated.' of '.$products->count().' product forecasts updated.')
-            : $response;
+        if ($failures !== [] || $generated === 0) {
+            return $response->withErrors(['forecast' => $generated.' of '.$products->count().' forecasts updated. '.implode(' ', $failures)]);
+        }
+
+        return $response->with('status', 'Success!');
     }
 
     public function decision(Request $request, ProductForecast $forecast, AuditTrail $auditTrail, ProductForecastService $service, AppAlertService $alerts): RedirectResponse
@@ -137,9 +136,6 @@ class ProductForecastController extends Controller
             }
             $currentRecommendation = $service->recommendation($forecast);
             $data['recommended_cases'] = $currentRecommendation['recommended_cases'] + $currentRecommendation['planned_cases'];
-            if ($data['recommended_cases'] !== (int) $data['approved_cases'] && blank($data['reason'] ?? null)) {
-                throw ValidationException::withMessages(['reason' => 'Explain why the approved quantity differs from the recommendation.']);
-            }
             ProductionForecastDecision::query()->where('plan_status', 'planned')
                 ->whereHas('forecast', fn ($query) => $query->where('product_id', $forecast->product_id))
                 ->update(['plan_status' => 'superseded']);

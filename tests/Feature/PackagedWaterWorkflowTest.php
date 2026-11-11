@@ -184,9 +184,11 @@ class PackagedWaterWorkflowTest extends TestCase
         $this->actingAs($actor)->post(route('packaged.forecasts.decision', $forecast), [
             'approved_cases' => 40,
             'planned_for' => today()->toDateString(),
-            'reason' => 'Limited bottle supply',
         ])->assertRedirect();
         $plan = ProductionForecastDecision::firstOrFail();
+        $this->assertSame(52, $plan->recommended_cases);
+        $this->assertSame(40, $plan->approved_cases);
+        $this->assertNull($plan->reason);
         $this->assertSame(40, $forecastService->recommendation($forecast)['planned_cases']);
         $this->assertSame(12, $forecastService->recommendation($forecast)['recommended_cases']);
 
@@ -248,7 +250,7 @@ class PackagedWaterWorkflowTest extends TestCase
         ]);
 
         $this->actingAs($actor)->get(route('packaged.forecasts.index'))->assertOk()
-            ->assertSee('Gradient Boosting was compared during development but is not used for these estimates.');
+            ->assertDontSee('Forecast Accuracy and Model Comparison');
         $this->actingAs($actor)->post(route('packaged.forecasts.decision', $forecast), [
             'approved_cases' => 120,
             'planned_for' => today()->toDateString(),
