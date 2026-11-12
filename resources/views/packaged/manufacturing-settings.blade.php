@@ -12,6 +12,10 @@
         'other_production_per_case' => ['Other production', 'Other direct production costs for one case. Enter zero if none.'],
     ];
     $todayDate = today()->toDateString();
+    $currentWaterRate = $waterRates->first(fn ($rate) => $rate->effective_from->toDateString() <= $todayDate);
+    $nextWaterRate = $waterRates->filter(fn ($rate) => $rate->effective_from->toDateString() > $todayDate)->sortBy('effective_from')->first();
+    $waterRateEffectiveDate = $waterRates->contains(fn ($rate) => $rate->effective_from->toDateString() === $todayDate)
+        ? today()->addDay()->toDateString() : $todayDate;
     $selectedHistory = $selectedProduct ? ($policies->get($selectedProduct->id) ?? collect()) : collect();
     $currentPolicy = $selectedHistory->first(fn ($policy) => $policy->effective_from->toDateString() <= $todayDate);
     $nextPolicy = $selectedHistory->filter(fn ($policy) => $policy->effective_from->toDateString() > $todayDate)->sortBy('effective_from')->first();
@@ -39,6 +43,57 @@
         <p class="small text-secondary mt-3 mb-0">New settings take effect on the date you choose. Batches already recorded keep their original expiry dates and production costs.</p>
     </div>
 
+    <section class="panel mb-3" aria-labelledby="water-supply-heading">
+        <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
+            <div>
+                <h2 id="water-supply-heading" class="section-title mb-1">Water supply cost</h2>
+                <p class="small text-secondary mb-0">Scenario source: Nairobi municipal water supply. Enter the approved rate from a bill or tariff; treatment is costed separately.</p>
+            </div>
+            @if ($currentWaterRate)
+                <strong>KSh {{ number_format((float) $currentWaterRate->price_per_litre, 4) }} / L</strong>
+            @else
+                <span class="badge text-bg-warning">Rate not configured</span>
+            @endif
+        </div>
+        @if ($currentWaterRate)
+            <div class="small text-secondary mb-2">Effective {{ $currentWaterRate->effective_from->format('d M Y') }} · Reference: {{ $currentWaterRate->bill_or_tariff_reference }}</div>
+        @else
+            <div class="small text-secondary mb-2">Approve a rate before recording new batches.</div>
+        @endif
+        @if ($nextWaterRate)
+            <div class="small text-secondary mb-2">Next approved rate takes effect {{ $nextWaterRate->effective_from->format('d M Y') }}.</div>
+        @endif
+        <form method="post" action="{{ route('packaged.manufacturing-settings.water-rate.store') }}" class="row g-2 align-items-end mb-2">
+            @csrf
+            <div class="col-sm-3">
+                <label class="form-label" for="water_rate_effective_from">Effective from</label>
+                <input class="form-control @error('effective_from') is-invalid @enderror" id="water_rate_effective_from" name="effective_from" type="date" min="{{ $todayDate }}" value="{{ old('effective_from', $waterRateEffectiveDate) }}" required>
+                @error('effective_from')<div class="invalid-feedback">{{ $message }}</div>@enderror
+            </div>
+            <div class="col-sm-3">
+                <label class="form-label" for="price_per_litre">Water rate (KSh / L)</label>
+                <input class="form-control @error('price_per_litre') is-invalid @enderror" id="price_per_litre" name="price_per_litre" type="number" min="0.0001" step="0.0001" value="{{ old('price_per_litre', $currentWaterRate?->price_per_litre) }}" required>
+                @error('price_per_litre')<div class="invalid-feedback">{{ $message }}</div>@enderror
+            </div>
+            <div class="col-sm-4">
+                <label class="form-label" for="bill_or_tariff_reference">Water bill or tariff reference</label>
+                <input class="form-control @error('bill_or_tariff_reference') is-invalid @enderror" id="bill_or_tariff_reference" name="bill_or_tariff_reference" type="text" maxlength="255" value="{{ old('bill_or_tariff_reference') }}" required>
+                @error('bill_or_tariff_reference')<div class="invalid-feedback">{{ $message }}</div>@enderror
+            </div>
+            <div class="col-sm-2"><button class="btn btn-brand w-100" type="submit">Approve rate</button></div>
+        </form>
+        <p class="small text-secondary mb-0">Cost per case = bottles per case × litres per bottle × approved water rate. Existing batches keep their recorded costs.</p>
+        @if ($waterRates->isNotEmpty())
+            <details class="mt-2"><summary class="small fw-semibold">Water rate history</summary>
+                <div class="table-responsive mt-2"><table class="table table-sm mb-0"><thead><tr><th>Effective date</th><th>Rate / L</th><th>Bill or tariff reference</th></tr></thead><tbody>
+                    @foreach ($waterRates as $rate)
+                        <tr><td>{{ $rate->effective_from->format('d M Y') }}</td><td>KSh {{ number_format((float) $rate->price_per_litre, 4) }}</td><td>{{ $rate->bill_or_tariff_reference }}</td></tr>
+                    @endforeach
+                </tbody></table></div>
+            </details>
+        @endif
+    </section>
+
     <div class="panel mb-3 p-0 overflow-hidden">
         <div class="table-responsive">
             <table class="table table-hover align-middle mb-0">
@@ -58,7 +113,9 @@
                             $active = $productHistory->first(fn ($policy) => $policy->effective_from->toDateString() <= $todayDate);
                             $scheduled = $productHistory->filter(fn ($policy) => $policy->effective_from->toDateString() > $todayDate)->sortBy('effective_from')->first();
                             $display = $active ?? $scheduled;
-                            $displayCost = $display ? collect(array_keys($costFields))->sum(fn ($field) => (float) $display->{$field}) : null;
+                            $displayCost = $display && $currentWaterRate
+                                ? collect(array_keys($costFields))->sum(fn ($field) => (float) $display->{$field}) + $product->volume_ml * $product->bottles_per_case / 1000 * (float) $currentWaterRate->price_per_litre
+                                : null;
                         @endphp
                         <tr @class(['table-active' => $selectedProduct?->id === $product->id])>
                             <th scope="row" class="ps-3 fw-semibold">{{ $product->name }}</th>
@@ -73,7 +130,7 @@
                                 @endif
                             </td>
                             <td>{{ $display ? number_format($display->shelf_life_days).' days' : '—' }}</td>
-                            <td>{{ $display ? 'KSh '.number_format($displayCost, 2) : '—' }}</td>
+                            <td>{{ $displayCost !== null ? 'KSh '.number_format($displayCost, 2) : 'Water rate not configured' }}</td>
                             <td>{{ $display?->effective_from?->format('d M Y') ?? '—' }}</td>
                             <td class="text-end pe-3"><a class="btn btn-sm {{ $selectedProduct?->id === $product->id ? 'btn-brand' : 'btn-outline-secondary' }}" href="{{ route('packaged.manufacturing-settings.index', ['product' => $product->id]) }}#product-settings" aria-label="{{ $display ? 'Edit' : 'Configure' }} settings for {{ $product->name }}">{{ $display ? 'Edit' : 'Configure' }}</a></td>
                         </tr>
@@ -101,14 +158,15 @@
             <section aria-labelledby="current-settings-heading" class="border rounded p-3 mb-4 bg-light">
                 <h3 id="current-settings-heading" class="section-title mb-3">Currently approved settings</h3>
                 @if ($currentPolicy)
-                    @php($currentTotal = collect(array_keys($costFields))->sum(fn ($field) => (float) $currentPolicy->{$field}))
+                    @php($currentTotal = $currentWaterRate ? collect(array_keys($costFields))->sum(fn ($field) => (float) $currentPolicy->{$field}) + $selectedProduct->volume_ml * $selectedProduct->bottles_per_case / 1000 * (float) $currentWaterRate->price_per_litre : null)
                     <div class="row g-3 mb-3">
                         <div class="col-sm-4"><div class="settings-label">Effective from</div><div class="settings-value">{{ $currentPolicy->effective_from->format('d M Y') }}</div></div>
                         <div class="col-sm-4"><div class="settings-label">Shelf life</div><div class="settings-value">{{ number_format($currentPolicy->shelf_life_days) }} days</div></div>
-                        <div class="col-sm-4"><div class="settings-label">Estimated cost / case</div><div class="settings-value">KSh {{ number_format($currentTotal, 2) }}</div></div>
+                        <div class="col-sm-4"><div class="settings-label">Estimated cost / case</div><div class="settings-value">{{ $currentTotal !== null ? 'KSh '.number_format($currentTotal, 2) : 'Water rate not configured' }}</div></div>
                     </div>
                     <details><summary class="small fw-semibold">View current cost components</summary>
                         <div class="row g-2 mt-1">
+                            @if ($currentWaterRate)<div class="col-sm-6 col-lg-4 small"><span class="text-secondary">Water supply:</span> KSh {{ number_format($selectedProduct->volume_ml * $selectedProduct->bottles_per_case / 1000 * (float) $currentWaterRate->price_per_litre, 2) }}</div>@endif
                             @foreach ($costFields as $field => [$label, $description])
                                 <div class="col-sm-6 col-lg-4 small"><span class="text-secondary">{{ $label }}:</span> KSh {{ number_format((float) $currentPolicy->{$field}, 2) }}</div>
                             @endforeach
@@ -136,7 +194,7 @@
                                 </div>
                                 <div class="row g-2 small mb-2">
                                     <div class="col-sm-4"><span class="text-secondary">Shelf life:</span> {{ number_format($policy->shelf_life_days) }} days</div>
-                                    <div class="col-sm-4"><span class="text-secondary">Total cost / case:</span> KSh {{ number_format($policyTotal, 2) }}</div>
+                                    <div class="col-sm-4"><span class="text-secondary">Other production costs / case:</span> KSh {{ number_format($policyTotal, 2) }}</div>
                                 </div>
                                 <div class="row g-2 border-top pt-2">
                                     @foreach ($costFields as $field => [$label, $description])
@@ -188,7 +246,7 @@
                 </fieldset>
 
                 <div class="cost-preview d-flex flex-wrap justify-content-between align-items-center gap-2 p-3 mb-3" role="status" aria-live="polite">
-                    <div><div class="settings-label">Estimated production cost</div><div class="small text-secondary">Sum of the seven entered cost components for one case.</div></div>
+                    <div><div class="settings-label">Estimated production cost</div><div class="small text-secondary">Entered production costs plus {{ $currentWaterRate ? 'KSh '.number_format($selectedProduct->volume_ml * $selectedProduct->bottles_per_case / 1000 * (float) $currentWaterRate->price_per_litre, 2) : 'an approved water supply rate' }} per case.</div></div>
                     <strong id="totalCostPerCase" class="fs-5">KSh 0.00 per case</strong>
                 </div>
                 <div class="d-flex flex-wrap align-items-center gap-3">
@@ -207,9 +265,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const fields = [...form.querySelectorAll('[data-cost-component]')];
     const output = document.getElementById('totalCostPerCase');
     const formatter = new Intl.NumberFormat('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const waterCost = @json($currentWaterRate ? $selectedProduct->volume_ml * $selectedProduct->bottles_per_case / 1000 * (float) $currentWaterRate->price_per_litre : null);
     const updateTotal = () => {
         const total = fields.reduce((sum, field) => sum + (Number.parseFloat(field.value) || 0), 0);
-        output.textContent = `KSh ${formatter.format(total)} per case`;
+        output.textContent = waterCost === null ? 'Water rate not configured' : `KSh ${formatter.format(total + waterCost)} per case`;
     };
     fields.forEach(field => field.addEventListener('input', updateTotal));
     updateTotal();

@@ -67,6 +67,11 @@ class AppAlertService
 
     public function scanIfDue(bool $force = false): void
     {
+        $today = CarbonImmutable::today(config('app.business_timezone'));
+        if (! $force && DB::table('app_alert_settings')->where('id', 1)->where('last_scan_on', $today->toDateString())->exists()) {
+            return;
+        }
+
         DB::transaction(function () use ($force): void {
             $settings = DB::table('app_alert_settings')->where('id', 1)->lockForUpdate()->first();
             if (! $settings) {

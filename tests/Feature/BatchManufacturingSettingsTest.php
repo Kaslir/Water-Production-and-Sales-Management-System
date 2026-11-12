@@ -41,6 +41,11 @@ class BatchManufacturingSettingsTest extends TestCase
         $product = Product::where('sku', 'WATER-500ML')->firstOrFail();
 
         $this->actingAs($manager)->post(route('packaged.manufacturing-settings.store', $product), $this->settings())->assertRedirect();
+        $this->actingAs($manager)->post(route('packaged.manufacturing-settings.water-rate.store'), [
+            'effective_from' => today()->toDateString(),
+            'price_per_litre' => '1.0000',
+            'bill_or_tariff_reference' => 'TEST-BILL-1',
+        ])->assertRedirect();
         $this->actingAs($staff)->get(route('packaged.batches.create'))->assertOk()
             ->assertDontSee('Approved production plan (optional)')
             ->assertDontSee('Total cost')
@@ -69,7 +74,9 @@ class BatchManufacturingSettingsTest extends TestCase
         $batch = ProductionBatch::firstOrFail();
         $this->assertSame(today()->addDays(120)->toDateString(), $batch->expires_on->toDateString());
         $this->assertSame(200.0, (float) $batch->bottle_cost);
-        $this->assertSame('500.00', $batch->total_cost);
+        $this->assertSame('120.00', $batch->water_supply_cost);
+        $this->assertSame('620.00', $batch->total_cost);
+        $this->assertSame('62.0000', $batch->cost_per_case);
         $this->assertSame('quality_hold', $batch->status);
         $this->assertNotSame('USER-OVERRIDE', $batch->batch_code);
         $this->assertNotNull($batch->manufacturing_policy_id);
@@ -78,6 +85,13 @@ class BatchManufacturingSettingsTest extends TestCase
         $this->assertNull($batch->treatment_log_reference);
         $this->assertSame(120.0, (float) $batch->water_input_litres);
         $this->assertSame('Approved without a matching production plan.', $batch->unplanned_reason);
+
+        $this->actingAs($manager)->post(route('packaged.manufacturing-settings.water-rate.store'), [
+            'effective_from' => today()->addDay()->toDateString(),
+            'price_per_litre' => '2.0000',
+            'bill_or_tariff_reference' => 'TEST-BILL-2',
+        ])->assertRedirect();
+        $this->assertSame('620.00', $batch->fresh()->total_cost);
     }
 
     public function test_production_staff_cannot_approve_settings_and_unconfigured_products_cannot_be_recorded(): void
@@ -97,11 +111,41 @@ class BatchManufacturingSettingsTest extends TestCase
         $this->assertDatabaseCount('production_batches', 0);
     }
 
+    public function test_water_rate_requires_manager_approval_and_a_reference_before_production(): void
+    {
+        $manager = $this->user('manager');
+        $staff = $this->user('production_staff');
+        $product = Product::where('sku', 'WATER-500ML')->firstOrFail();
+        $this->actingAs($manager)->post(route('packaged.manufacturing-settings.store', $product), $this->settings())->assertRedirect();
+
+        $rate = [
+            'effective_from' => today()->toDateString(),
+            'price_per_litre' => '0.2500',
+            'bill_or_tariff_reference' => 'TEST-WATER-BILL',
+        ];
+        $this->actingAs($staff)->post(route('packaged.manufacturing-settings.water-rate.store'), $rate)->assertForbidden();
+        $this->actingAs($manager)->post(route('packaged.batches.store'), [
+            'product_id' => $product->id,
+            'produced_on' => today()->toDateString(),
+            'cases_produced' => 10,
+            'unplanned_approval' => '1',
+        ])->assertSessionHasErrors('product_id');
+        $this->actingAs($manager)->post(route('packaged.manufacturing-settings.water-rate.store'), array_diff_key($rate, ['bill_or_tariff_reference' => true]))
+            ->assertSessionHasErrors('bill_or_tariff_reference');
+        $this->actingAs($manager)->post(route('packaged.manufacturing-settings.water-rate.store'), $rate)->assertRedirect();
+        $this->assertDatabaseCount('water_supply_rates', 1);
+    }
+
     public function test_batch_is_linked_to_a_matching_approved_plan_without_a_form_selector(): void
     {
         $manager = $this->user('manager');
         $product = Product::where('sku', 'WATER-5L')->firstOrFail();
         $this->actingAs($manager)->post(route('packaged.manufacturing-settings.store', $product), $this->settings())->assertRedirect();
+        $this->actingAs($manager)->post(route('packaged.manufacturing-settings.water-rate.store'), [
+            'effective_from' => today()->toDateString(),
+            'price_per_litre' => '1.0000',
+            'bill_or_tariff_reference' => 'TEST-BILL-1',
+        ])->assertRedirect();
         $forecast = ProductForecast::create([
             'product_id' => $product->id,
             'origin_date' => today()->subDay(),
@@ -144,6 +188,11 @@ class BatchManufacturingSettingsTest extends TestCase
             ->assertDontSee('Approve new settings');
 
         $this->actingAs($manager)->post(route('packaged.manufacturing-settings.store', $product), $this->settings())->assertRedirect();
+        $this->actingAs($manager)->post(route('packaged.manufacturing-settings.water-rate.store'), [
+            'effective_from' => today()->toDateString(),
+            'price_per_litre' => '1.0000',
+            'bill_or_tariff_reference' => 'TEST-BILL-1',
+        ])->assertRedirect();
         $futureSettings = $this->settings();
         $futureSettings['effective_from'] = today()->addDay()->toDateString();
         $futureSettings['shelf_life_days'] = 150;
@@ -154,7 +203,7 @@ class BatchManufacturingSettingsTest extends TestCase
             ->assertOk()
             ->assertSee('Currently approved settings')
             ->assertSee('120 days')
-            ->assertSee('KSh 50.00')
+            ->assertSee('KSh 62.00')
             ->assertSee('View Settings History (2)')
             ->assertSee('150 days')
             ->assertDontSee('Supporting document reference')

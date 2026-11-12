@@ -22,6 +22,7 @@ use App\Models\SalesOrderItem;
 use App\Models\SalesReturn;
 use App\Models\StockMovement;
 use App\Models\User;
+use App\Models\WaterSupplyRate;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -43,6 +44,16 @@ class PackagedWaterService
                 if (! $policy) {
                     throw ValidationException::withMessages(['product_id' => 'A manager must approve manufacturing costs and shelf life for this product before a batch can be recorded.']);
                 }
+                $waterRate = WaterSupplyRate::query()
+                    ->whereDate('effective_from', '<=', $data['produced_on'])
+                    ->orderByDesc('effective_from')->orderByDesc('id')->first();
+                if (! $waterRate) {
+                    throw ValidationException::withMessages(['product_id' => 'A manager must approve a water supply rate in Manufacturing Settings before a new batch can be recorded.']);
+                }
+                $product = Product::findOrFail($data['product_id']);
+                $litresPerCase = $product->volume_ml * $product->bottles_per_case / 1000;
+                $data['water_supply_rate_id'] = $waterRate->id;
+                $data['water_supply_cost'] = round($litresPerCase * (int) $data['cases_produced'] * (float) $waterRate->price_per_litre, 2);
                 $data['expires_on'] = CarbonImmutable::parse($data['produced_on'])->addDays($policy->shelf_life_days)->toDateString();
                 foreach (['water_treatment_cost' => 'water_treatment_per_case', 'bottle_cost' => 'bottle_per_case', 'inbound_transport_cost' => 'inbound_transport_per_case', 'cap_label_cost' => 'cap_label_per_case', 'labour_cost' => 'labour_per_case', 'electricity_cost' => 'electricity_per_case', 'other_production_cost' => 'other_production_per_case'] as $batchField => $policyField) {
                     $data[$batchField] = round((float) $policy->{$policyField} * (int) $data['cases_produced'], 2);
@@ -65,11 +76,12 @@ class PackagedWaterService
                 $this->require($actor->hasRole('administrator', 'manager'), 'A manager must authorise production outside an approved plan.');
                 $this->require(filled($data['unplanned_reason'] ?? null), 'A manager must select Yes to approve production outside an approved plan.');
             }
-            $costFields = ['water_treatment_cost', 'bottle_cost', 'inbound_transport_cost', 'cap_label_cost', 'labour_cost', 'electricity_cost', 'other_production_cost'];
+            $costFields = ['water_supply_cost', 'water_treatment_cost', 'bottle_cost', 'inbound_transport_cost', 'cap_label_cost', 'labour_cost', 'electricity_cost', 'other_production_cost'];
             $totalCost = round(array_sum(array_map(fn (string $field): float => (float) ($data[$field] ?? 0), $costFields)), 2);
             $batch = ProductionBatch::create([
                 'product_id' => $data['product_id'],
                 'manufacturing_policy_id' => $policy?->id,
+                'water_supply_rate_id' => $data['water_supply_rate_id'] ?? null,
                 'production_forecast_decision_id' => $plan?->id,
                 'batch_code' => $data['batch_code'],
                 'produced_on' => $data['produced_on'],
@@ -82,6 +94,7 @@ class PackagedWaterService
                 'treatment_log_reference' => $data['treatment_log_reference'] ?? null,
                 'unplanned_reason' => $plan ? null : $data['unplanned_reason'],
                 'unplanned_authorized_by' => $plan ? null : $actorId,
+                'water_supply_cost' => $data['water_supply_cost'] ?? 0,
                 'water_treatment_cost' => $data['water_treatment_cost'] ?? 0,
                 'bottle_cost' => $data['bottle_cost'] ?? 0,
                 'inbound_transport_cost' => $data['inbound_transport_cost'] ?? 0,
@@ -119,6 +132,11 @@ class PackagedWaterService
             $batch = ProductionBatch::query()->lockForUpdate()->findOrFail($batch->id);
             $this->require($batch->status === 'quality_hold', 'Only a batch on quality hold can be released.');
             $this->require($batch->expires_on->gt(CarbonImmutable::today(config('app.business_timezone'))), 'An expired batch cannot be released.');
+            $this->require(filled($qualityData['quality_evidence_reference'] ?? null), 'A quality record reference is required before release.');
+            $this->require(($qualityData['microbiological_result'] ?? null) === 'pass', 'A passing quality result is required before release.');
+            $testedOn = $qualityData['quality_tested_on'] ?? null;
+            $testedDate = $testedOn ? CarbonImmutable::parse($testedOn)->toDateString() : null;
+            $this->require($testedDate && $testedDate >= $batch->produced_on->toDateString() && $testedDate <= CarbonImmutable::today(config('app.business_timezone'))->toDateString(), 'The quality test date must be between production and today.');
             $this->require($rejectedCases >= 0 && $rejectedCases < $batch->cases_on_hand, 'At least one saleable case must remain after quality rejection.');
             $saleableCases = $batch->cases_on_hand - $rejectedCases;
             $batch->update(['status' => 'released', 'quality_notes' => $notes, 'quality_rejected_cases' => $rejectedCases, 'cases_on_hand' => $saleableCases, 'cost_per_case' => round((float) $batch->total_cost / $saleableCases, 4), 'released_by' => $actorId, 'released_at' => now(), 'quality_tested_on' => $qualityData['quality_tested_on'] ?? null, 'quality_evidence_reference' => $qualityData['quality_evidence_reference'] ?? null, 'quality_ph' => $qualityData['quality_ph'] ?? null, 'quality_turbidity_ntu' => $qualityData['quality_turbidity_ntu'] ?? null, 'microbiological_result' => $qualityData['microbiological_result'] ?? null]);
@@ -377,6 +395,7 @@ class PackagedWaterService
     public function deliverOrder(SalesOrder $order, int $actorId, array $receipt = []): void
     {
         DB::transaction(function () use ($order, $actorId, $receipt): void {
+            $this->require(filled($receipt['receipt_reference'] ?? null), 'A signed delivery note or receipt reference is required.');
             $order = SalesOrder::query()->with('dispatch')->lockForUpdate()->findOrFail($order->id);
             $this->require($order->status === 'dispatched' && $order->dispatch !== null, 'The order has not been dispatched.');
             $order->dispatch->update(['status' => 'delivered', 'delivered_on' => CarbonImmutable::today(config('app.business_timezone')), 'received_by' => $receipt['received_by'] ?? null, 'receipt_reference' => $receipt['receipt_reference'] ?? null]);

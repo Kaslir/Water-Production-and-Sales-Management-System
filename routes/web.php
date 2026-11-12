@@ -72,6 +72,7 @@ Route::middleware(['auth', 'active', DailyAlertScan::class])->group(function () 
     Route::middleware('role:administrator,manager')->group(function () {
         Route::get('/packaged/manufacturing-settings', [PackagedProductionController::class, 'manufacturingSettings'])->name('packaged.manufacturing-settings.index');
         Route::post('/packaged/products/{product}/manufacturing-settings', [PackagedProductionController::class, 'saveManufacturingSettings'])->name('packaged.manufacturing-settings.store');
+        Route::post('/packaged/manufacturing-settings/water-rate', [PackagedProductionController::class, 'saveWaterSupplyRate'])->name('packaged.manufacturing-settings.water-rate.store');
         Route::get('/packaged/pricing', [ProductPricingController::class, 'index'])->name('packaged.pricing.index');
         Route::get('/packaged/delivery-zones', [DeliveryZoneController::class, 'index'])->name('packaged.delivery-zones.index');
         Route::post('/packaged/delivery-zones/{zone}', [DeliveryZoneController::class, 'update'])->name('packaged.delivery-zones.update');

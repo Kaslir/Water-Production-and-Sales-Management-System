@@ -32,7 +32,14 @@ class PackagedReportController extends Controller
         $expenses = OperatingExpense::query()->whereDate('expense_date', '>=', $from)->whereDate('expense_date', '<=', $to)->orderByDesc('expense_date')->get();
         $summary = $financial->forPeriod($from, $to, $invoices, $returns, $deliveryFeeCredits, $expenses);
         $actualCostRows = BatchActualCost::query()->with('batch.product')->whereHas('batch', fn ($query) => $query->whereDate('produced_on', '>=', $from)->whereDate('produced_on', '<=', $to))->get();
-        $actualCostVariance = (float) $actualCostRows->sum(fn (BatchActualCost $cost) => (float) $cost->actual_total - (float) $cost->batch->total_cost);
+        $actualCostVariance = (float) $actualCostRows->sum(fn (BatchActualCost $cost) => (float) $cost->actual_total - ((float) $cost->batch->total_cost - ($cost->actual_water_supply === null ? (float) $cost->batch->water_supply_cost : 0)));
+        $legacyCostCases = (int) \Illuminate\Support\Facades\DB::table('dispatch_lines')
+            ->join('dispatches', 'dispatch_lines.dispatch_id', '=', 'dispatches.id')
+            ->join('invoices', 'dispatches.sales_order_id', '=', 'invoices.sales_order_id')
+            ->join('production_batches', 'dispatch_lines.production_batch_id', '=', 'production_batches.id')
+            ->whereNull('production_batches.water_supply_rate_id')
+            ->whereDate('invoices.issued_on', '>=', $from)->whereDate('invoices.issued_on', '<=', $to)
+            ->sum('dispatch_lines.cases');
         $nearExpiry = ProductionBatch::query()->with('product')->where('cases_on_hand', '>', 0)->whereDate('expires_on', '<=', CarbonImmutable::today(config('app.business_timezone'))->addDays(30))->orderBy('expires_on')->get();
         $productPerformance = [];
         $customerPerformance = [];
@@ -69,7 +76,7 @@ class PackagedReportController extends Controller
             $customerPerformance[$customer->customer_id]['revenue'] -= (float) $credit->amount;
         }
 
-        return view('packaged.reports', $summary + compact('from', 'to', 'invoices', 'returns', 'actualCostVariance', 'actualCostRows', 'expenses', 'nearExpiry', 'productPerformance', 'customerPerformance'));
+        return view('packaged.reports', $summary + compact('from', 'to', 'invoices', 'returns', 'actualCostVariance', 'actualCostRows', 'legacyCostCases', 'expenses', 'nearExpiry', 'productPerformance', 'customerPerformance'));
     }
 
     public function expense(Request $request, AuditTrail $auditTrail): RedirectResponse

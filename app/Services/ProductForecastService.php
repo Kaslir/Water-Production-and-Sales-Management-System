@@ -142,9 +142,20 @@ class ProductForecastService
         if ($originDate->lt($date)) {
             return ['available' => false, 'reason' => 'A complete Sunday history is needed for weekly evaluation.'];
         }
+        $observedDays = DB::table('sales_orders')
+            ->whereIn('status', ['confirmed', 'dispatched', 'delivery_failed', 'delivered', 'invoiced', 'paid'])
+            ->whereDate('ordered_on', '>=', $date->toDateString())
+            ->whereDate('ordered_on', '<=', $originDate->toDateString())
+            ->selectRaw('DATE(ordered_on) as order_day')->distinct()->pluck('order_day')->flip();
+        $closedDays = DB::table('daily_order_closures')
+            ->whereDate('order_day', '>=', $date->toDateString())
+            ->whereDate('order_day', '<=', $originDate->toDateString())
+            ->pluck('order_day')->flip();
         $dailyCases = [];
         while ($date->lte($originDate)) {
-            // The origin is a completed Sunday, so dates without accepted orders contribute zero cases.
+            if ($date->dayOfWeek !== CarbonImmutable::SUNDAY && ! $observedDays->has($date->toDateString()) && ! $closedDays->has($date->toDateString())) {
+                return ['available' => false, 'reason' => 'Sales records for '.$date->format('d M Y').' are not closed. Confirm that the day had no orders before forecasting.'];
+            }
             $dailyCases[] = (float) ($byDate[$date->toDateString()] ?? 0);
             $date = $date->addDay();
         }

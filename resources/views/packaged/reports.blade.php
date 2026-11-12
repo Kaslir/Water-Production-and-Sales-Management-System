@@ -57,6 +57,9 @@
 </div>
 
 <section class="panel mb-3" aria-labelledby="financial-breakdown-heading">
+    @if($legacyCostCases > 0)
+        <div class="alert alert-info small" role="note">{{ number_format($legacyCostCases) }} invoiced cases in this period came from historical batches recorded before the water-supply rate was introduced. Their recorded manufacturing costs and estimated profit do not include that new cost.</div>
+    @endif
     <div class="d-flex justify-content-between align-items-baseline flex-wrap gap-2 mb-2">
         <h2 class="h5 mb-0" id="financial-breakdown-heading">Financial Breakdown</h2>
         <span class="small text-muted">Selected period: {{ \Carbon\Carbon::parse($from)->format('d M Y') }} – {{ \Carbon\Carbon::parse($to)->format('d M Y') }}</span>
@@ -80,7 +83,7 @@
             <div class="d-flex justify-content-between gap-3 border-bottom py-2"><span>Actual cost variance for batches with a closeout</span><strong>KSh {{ number_format($actualCostVariance, 2) }}</strong></div>
         </div>
     </div>
-    <p class="small text-muted mt-2 mb-0">Delivery fees are revenue; each trip's fuel and other expenses are counted once. Historical order delivery expenses are separate. Actual cost variance is shown for review and is not included again in estimated profit. Refunds change cash and receivables; approved credits already reduce revenue.</p>
+    <p class="small text-muted mt-2 mb-0">Delivery fees are revenue; each trip's fuel and other expenses are counted once. Historical order delivery expenses are separate. Actual cost variance compares only cost components recorded in both the closeout and estimate; it is not included again in estimated profit. Refunds change cash and receivables; approved credits already reduce revenue.</p>
     @if(auth()->user()->hasRole('administrator','manager') && $expenses->isNotEmpty())
     <details class="mt-3"><summary>Recorded operating expenses and corrections</summary>
         @foreach($expenses as $expense)<div class="border-top py-2">{{ $expense->expense_date->format('d M Y') }} · {{ $expense->category }} · KSh {{ number_format($expense->amount, 2) }} @if($expense->reversed_at)<span class="badge bg-secondary">Reversed</span> {{ $expense->reversal_reason }}@else<form class="d-flex gap-2 mt-2" method="post" action="{{ route('packaged.expenses.reverse', $expense) }}">@csrf<input class="form-control" name="reason" placeholder="Correction reason" required><button class="btn btn-outline-danger" onclick="return confirm('Reverse this expense?')">Reverse</button></form>@endif</div>@endforeach

@@ -7,6 +7,7 @@ use App\Models\DispatchLine;
 use App\Models\Product;
 use App\Models\ProductionBatch;
 use App\Models\ProductManufacturingPolicy;
+use App\Models\WaterSupplyRate;
 use App\Services\AuditTrail;
 use App\Services\PackagedWaterService;
 use Carbon\CarbonImmutable;
@@ -51,8 +52,27 @@ class PackagedProductionController extends Controller
         return view('packaged.manufacturing-settings', [
             'products' => $products,
             'policies' => $policies,
+            'waterRates' => WaterSupplyRate::query()->orderByDesc('effective_from')->orderByDesc('id')->get(),
             'selectedProduct' => $products->firstWhere('id', (int) $request->query('product')),
         ]);
+    }
+
+    public function saveWaterSupplyRate(Request $request, AuditTrail $auditTrail): RedirectResponse
+    {
+        $data = $request->validate([
+            'effective_from' => ['required', 'date', 'after_or_equal:'.CarbonImmutable::today(config('app.business_timezone'))->toDateString(), Rule::unique('water_supply_rates', 'effective_from')],
+            'price_per_litre' => ['required', 'numeric', 'decimal:0,4', 'gt:0', 'max:99999999.9999'],
+            'bill_or_tariff_reference' => ['required', 'string', 'max:255'],
+        ]);
+
+        $rate = WaterSupplyRate::create($data + ['approved_by' => $request->user()->user_id]);
+        $auditTrail->record('water_supply.rate_approved', $rate, $request->user()->user_id, [], [
+            'effective_from' => $rate->effective_from->toDateString(),
+            'price_per_litre' => $rate->price_per_litre,
+            'bill_or_tariff_reference' => $rate->bill_or_tariff_reference,
+        ]);
+
+        return redirect()->route('packaged.manufacturing-settings.index')->with('status', 'Water supply rate approved. New batches will use it from the effective date.');
     }
 
     public function saveManufacturingSettings(Request $request, Product $product, AuditTrail $auditTrail): RedirectResponse
@@ -100,7 +120,12 @@ class PackagedProductionController extends Controller
 
     public function release(Request $request, ProductionBatch $batch, PackagedWaterService $service): RedirectResponse
     {
-        $service->releaseBatch($batch, $request->user()->user_id, 'Approved for sale by manager without recorded test results.');
+        $data = $request->validate([
+            'quality_tested_on' => ['required', 'date', 'after_or_equal:'.$batch->produced_on->toDateString(), 'before_or_equal:'.CarbonImmutable::today(config('app.business_timezone'))->toDateString()],
+            'quality_evidence_reference' => ['required', 'string', 'max:255'],
+            'microbiological_result' => ['required', 'in:pass'],
+        ]);
+        $service->releaseBatch($batch, $request->user()->user_id, 'Approved after documented quality review.', 0, $data);
 
         return back()->with('status', 'Batch released for sale.');
     }
@@ -132,6 +157,7 @@ class PackagedProductionController extends Controller
     public function recordActualCost(Request $request, ProductionBatch $batch, AuditTrail $auditTrail): RedirectResponse
     {
         $data = $request->validate([
+            'actual_water_supply' => [$batch->water_supply_rate_id ? 'required' : 'nullable', 'numeric', 'min:0', 'decimal:0,2'],
             'actual_treatment' => ['required', 'numeric', 'min:0', 'decimal:0,2'],
             'actual_bottles' => ['required', 'numeric', 'min:0', 'decimal:0,2'],
             'actual_inbound' => ['required', 'numeric', 'min:0', 'decimal:0,2'],
@@ -141,7 +167,7 @@ class PackagedProductionController extends Controller
             'actual_other' => ['required', 'numeric', 'min:0', 'decimal:0,2'],
             'evidence_reference' => ['required', 'string', 'max:255'],
         ]);
-        $data['actual_total'] = round(array_sum(array_map('floatval', array_intersect_key($data, array_flip(['actual_treatment', 'actual_bottles', 'actual_inbound', 'actual_caps_labels', 'actual_labour', 'actual_electricity', 'actual_other'])))), 2);
+        $data['actual_total'] = round(array_sum(array_map('floatval', array_intersect_key($data, array_flip(['actual_water_supply', 'actual_treatment', 'actual_bottles', 'actual_inbound', 'actual_caps_labels', 'actual_labour', 'actual_electricity', 'actual_other'])))), 2);
         DB::transaction(function () use ($batch, $data, $request, $auditTrail): void {
             $batch = ProductionBatch::query()->lockForUpdate()->findOrFail($batch->id);
             abort_if(BatchActualCost::query()->where('production_batch_id', $batch->id)->exists(), 422, 'Actual cost has already been recorded for this batch.');
