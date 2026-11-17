@@ -122,7 +122,6 @@ class PackagedProductionController extends Controller
     {
         $data = $request->validate([
             'quality_tested_on' => ['required', 'date', 'after_or_equal:'.$batch->produced_on->toDateString(), 'before_or_equal:'.CarbonImmutable::today(config('app.business_timezone'))->toDateString()],
-            'quality_evidence_reference' => ['required', 'string', 'max:255'],
             'microbiological_result' => ['required', 'in:pass'],
         ]);
         $service->releaseBatch($batch, $request->user()->user_id, 'Approved after documented quality review.', 0, $data);

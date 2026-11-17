@@ -265,7 +265,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const fields = [...form.querySelectorAll('[data-cost-component]')];
     const output = document.getElementById('totalCostPerCase');
     const formatter = new Intl.NumberFormat('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    const waterCost = @json($currentWaterRate ? $selectedProduct->volume_ml * $selectedProduct->bottles_per_case / 1000 * (float) $currentWaterRate->price_per_litre : null);
+    const waterCost = @json($currentWaterRate && $selectedProduct ? $selectedProduct->volume_ml * $selectedProduct->bottles_per_case / 1000 * (float) $currentWaterRate->price_per_litre : null);
     const updateTotal = () => {
         const total = fields.reduce((sum, field) => sum + (Number.parseFloat(field.value) || 0), 0);
         output.textContent = waterCost === null ? 'Water rate not configured' : `KSh ${formatter.format(total + waterCost)} per case`;

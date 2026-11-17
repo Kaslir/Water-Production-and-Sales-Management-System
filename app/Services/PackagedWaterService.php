@@ -132,7 +132,6 @@ class PackagedWaterService
             $batch = ProductionBatch::query()->lockForUpdate()->findOrFail($batch->id);
             $this->require($batch->status === 'quality_hold', 'Only a batch on quality hold can be released.');
             $this->require($batch->expires_on->gt(CarbonImmutable::today(config('app.business_timezone'))), 'An expired batch cannot be released.');
-            $this->require(filled($qualityData['quality_evidence_reference'] ?? null), 'A quality record reference is required before release.');
             $this->require(($qualityData['microbiological_result'] ?? null) === 'pass', 'A passing quality result is required before release.');
             $testedOn = $qualityData['quality_tested_on'] ?? null;
             $testedDate = $testedOn ? CarbonImmutable::parse($testedOn)->toDateString() : null;

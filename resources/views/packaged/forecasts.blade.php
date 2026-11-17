@@ -86,7 +86,7 @@
                             </div>
                             @if($plan)
                                 <details class="mt-3 border-top pt-3">
-                                    <summary class="small fw-semibold">How was this recommendation calculated?</summary>
+                                    <summary class="small fw-semibold">More Information</summary>
                                     <p class="small text-muted mt-2 mb-0">
                                         Expected orders: {{ number_format($week->predicted_cases, 0) }} cases.
                                         Already recorded this week: {{ number_format($plan['recorded_cases']) }} cases.
